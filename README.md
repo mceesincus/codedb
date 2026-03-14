@@ -86,3 +86,31 @@ The GUI also marks reused indexes as `CURRENT` or `STALE`; stale indexes are reb
 During indexing, the GUI shows phase-based progress updates for scanning, parsing, extraction, graph build, persistence, and metadata writes.
 
 Runtime note: the GUI uses `tkinter`, so the Python interpreter you run it with must include Tk support.
+
+## Launch the REPL
+
+The repository also includes a minimal terminal client over the same APIs.
+
+```bash
+.venv/bin/python -m code_graph_core.repl
+```
+
+Or, after reinstalling the editable package:
+
+```bash
+code-graph-repl
+```
+
+Commands:
+
+- `help`
+- `repo [path]`
+- `index [--force]`
+- `status`
+- `search <query>`
+- `context <symbol> [file_path]`
+- `skills`
+- `skill <name>`
+- `impact <target> [upstream|downstream] [depth]`
+
+Any unrecognized input falls back to `search`.
