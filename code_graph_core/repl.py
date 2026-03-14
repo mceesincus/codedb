@@ -16,7 +16,7 @@ from code_graph_core import (
     list_skills,
     search,
 )
-from code_graph_core.gui import (
+from code_graph_core.client_support import (
     IndexedRepoState,
     default_source_repo_path,
     format_impact,

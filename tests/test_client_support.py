@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 from code_graph_core import index_repo
-from code_graph_core.gui import (
+from code_graph_core.client_support import (
     classify_index_freshness,
     format_impact,
     format_index_progress,

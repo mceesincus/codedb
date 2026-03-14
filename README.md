@@ -43,7 +43,6 @@ The current implementation covers the implemented v1 surface:
 - `list_skills(repo_id)`
 - `get_skill(repo_id, skill_name)`
 - minimal terminal REPL chatbot
-- minimal local GUI client
 
 ## Query an Indexed Repository
 
@@ -68,31 +67,6 @@ print(
 )
 PY
 ```
-
-## Launch the GUI
-
-The repository now includes a minimal desktop client for indexing, search, and symbol context.
-
-```bash
-.venv/bin/python -m code_graph_core.gui
-```
-
-Or, after reinstalling the editable package:
-
-```bash
-code-graph-gui
-```
-
-Default source repo:
-
-- Windows: `C:\work\india\mssrc`
-- WSL/Linux: `/mnt/c/work/india/mssrc`
-
-If an index already exists under the GUI cache directory, the app loads it automatically on startup for the current repo path.
-The GUI also marks reused indexes as `CURRENT` or `STALE`; stale indexes are rebuilt automatically before search/context actions.
-During indexing, the GUI shows phase-based progress updates for scanning, parsing, extraction, graph build, persistence, and metadata writes.
-
-Runtime note: the GUI uses `tkinter`, so the Python interpreter you run it with must include Tk support.
 
 ## Launch the REPL
 

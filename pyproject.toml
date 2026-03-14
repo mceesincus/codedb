@@ -14,7 +14,6 @@ dependencies = [
 ]
 
 [project.scripts]
-code-graph-gui = "code_graph_core.gui:main"
 code-graph-repl = "code_graph_core.repl:main"
 
 [tool.setuptools.packages.find]

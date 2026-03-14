@@ -152,13 +152,13 @@ code_graph_core/
     typescript.py
     python.py
     shared.py
-  gui.py
+  client_support.py
   repl.py
 tests/
   fixtures/
   test_indexing.py
   test_querying.py
-  test_gui.py
+  test_client_support.py
   test_repl.py
   test_storage.py
 ```
@@ -168,7 +168,7 @@ Reserved for post-v1 if process tracing proves worthwhile:
 - `api/processes.py`
 - `ingestion/process_detector.py`
 
-The optional HTTP wrapper remains deferred. The implemented v1 demo surfaces are the in-process REPL and a minimal local GUI.
+The optional HTTP wrapper remains deferred. The implemented v1 demo surface is the in-process REPL.
 
 ## 5. Data Model
 

@@ -15,7 +15,6 @@ Current v1 implementation notes:
 
 - the in-process Python API is implemented
 - the minimal local demo chatbot is implemented as a terminal REPL
-- a minimal local desktop GUI is also included as an auxiliary demo surface
 
 ## 2. Problem
 
@@ -213,7 +212,7 @@ The demo chatbot must:
 - render structured results from search, symbol context, impact, repo status, and skills
 - make it easy to demonstrate the system end to end on fixture repositories
 
-The current implementation satisfies this requirement primarily through a terminal REPL with rule-based intent routing and conversational follow-up state.
+The current implementation satisfies this requirement through a terminal REPL with rule-based intent routing and conversational follow-up state.
 
 The demo chatbot does not need:
 
@@ -388,7 +387,6 @@ System success:
 - expose repo status, search, symbol context, impact
 - generate basic skills
 - provide a local terminal demo chatbot
-- provide a minimal local GUI explorer
 
 ### Post-v1 candidates
 
