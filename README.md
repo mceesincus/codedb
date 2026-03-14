@@ -50,12 +50,16 @@ from code_graph_core import get_symbol_context, index_repo, search
 
 result = index_repo("tests/fixtures/py_basic_app")
 
-print(search(result.repo_id, "generate_invoice", graph_path=result.graph_path))
+results = search(result.repo_id, "<symbol-query>", graph_path=result.graph_path)
+print(results)
+
+# After search returns a real symbol from your repo, pass its exact name and
+# optional file path into get_symbol_context(...).
 print(
     get_symbol_context(
         result.repo_id,
-        "generate_invoice",
-        file_path="src/billing/service.py",
+        "<symbol-name>",
+        file_path="<relative/path/from/search/results>",
         graph_path=result.graph_path,
     )
 )
@@ -113,5 +117,6 @@ Commands:
 - `skill <name>`
 - `impact <target> [upstream|downstream] [depth]`
 
-The REPL also routes a few common chat-style prompts such as `what calls generateInvoice?`, `show context for save`, and `list skills`.
+For a new codebase, start with `search <query>` to discover real symbol names and file paths.
+The REPL also routes a few common chat-style prompts such as `what calls <symbol>?`, `show context for <symbol>`, and `list skills`.
 Any other input falls back to `search`.

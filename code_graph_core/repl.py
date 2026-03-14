@@ -45,7 +45,8 @@ def format_repl_help() -> str:
             "  exit | quit",
             "",
             "Natural-language prompts are also routed when they match common intents.",
-            "Examples: `what calls generateInvoice?`, `show context for save`, `list skills`.",
+            "Start with `search <query>` to discover real symbols in the active repo.",
+            "Examples: `what calls <symbol>?`, `show context for <symbol>`, `list skills`.",
             "Any other input runs a search against the active repo.",
         ]
     )
