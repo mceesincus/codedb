@@ -20,6 +20,7 @@ def test_index_repo_persists_graph_and_metadata(tmp_path: Path) -> None:
     assert metadata["repo_id"] == result.repo_id
     assert metadata["file_count"] == 3
     assert metadata["node_count"] == result.stats["node_count"]
+    assert metadata["source_last_modified_at"]
     assert metadata["unresolved_import_count"] == 0
     assert metadata["unresolved_call_count"] == 0
     assert store.table_count("Repository") == 1

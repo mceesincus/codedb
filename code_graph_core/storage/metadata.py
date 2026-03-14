@@ -4,9 +4,16 @@ import json
 from pathlib import Path
 
 from code_graph_core.graph.models import GraphBundle
+from code_graph_core.graph.models import SourceFile
+from code_graph_core.storage.freshness import source_last_modified_at
 
 
-def metadata_payload(graph_bundle: GraphBundle, repo_path: Path, graph_path: Path) -> dict[str, object]:
+def metadata_payload(
+    graph_bundle: GraphBundle,
+    repo_path: Path,
+    graph_path: Path,
+    source_files: list[SourceFile],
+) -> dict[str, object]:
     payload: dict[str, object] = {
         "repo_id": graph_bundle.repo_id,
         "repo_path": str(repo_path),
@@ -14,6 +21,7 @@ def metadata_payload(graph_bundle: GraphBundle, repo_path: Path, graph_path: Pat
         "graph_path": str(graph_path),
         "indexed_at": graph_bundle.indexed_at,
         "index_version": graph_bundle.index_version,
+        "source_last_modified_at": source_last_modified_at(source_files, repo_path),
         "languages_detected": sorted(
             {
                 node.properties["language"]
@@ -33,4 +41,3 @@ def write_metadata(path: Path, payload: dict[str, object]) -> None:
 
 def load_metadata(path: Path) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
-

@@ -12,6 +12,7 @@ from typing import Any, Callable
 from code_graph_core.storage.index_paths import graph_path as indexed_graph_path
 from code_graph_core.storage.index_paths import metadata_path as indexed_metadata_path
 from code_graph_core.storage.index_paths import repo_id_for_path
+from code_graph_core.storage.freshness import current_source_last_modified_at
 from code_graph_core.storage.metadata import load_metadata
 
 try:
@@ -34,6 +35,9 @@ class IndexedRepoState:
     repo_name: str
     graph_path: str
     metadata_path: str
+    indexed_at: str
+    source_last_modified_at: str | None
+    freshness_status: str
     stats: dict[str, int]
 
 
@@ -122,6 +126,17 @@ def format_symbol_context(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def classify_index_freshness(repo_path: Path, metadata: dict[str, object]) -> str:
+    stored_last_modified_at = metadata.get("source_last_modified_at")
+    if not stored_last_modified_at:
+        return "STALE"
+
+    current_last_modified_at = current_source_last_modified_at(repo_path)
+    if current_last_modified_at > str(stored_last_modified_at):
+        return "STALE"
+    return "CURRENT"
+
+
 def load_existing_index_state(repo_path: Path, index_root: Path) -> IndexedRepoState | None:
     repo_id = repo_id_for_path(repo_path)
     graph_path = indexed_graph_path(index_root, repo_id)
@@ -143,12 +158,16 @@ def load_existing_index_state(repo_path: Path, index_root: Path) -> IndexedRepoS
             "unresolved_import_count",
         )
     }
+    freshness_status = classify_index_freshness(repo_path, metadata)
     return IndexedRepoState(
         source_repo_path=str(repo_path),
         repo_id=str(metadata["repo_id"]),
         repo_name=str(metadata["repo_name"]),
         graph_path=str(graph_path),
         metadata_path=str(metadata_path),
+        indexed_at=str(metadata.get("indexed_at", "")),
+        source_last_modified_at=str(metadata.get("source_last_modified_at")) if metadata.get("source_last_modified_at") else None,
+        freshness_status=freshness_status,
         stats=stats,
     )
 
@@ -333,10 +352,13 @@ class CodeGraphGuiApp:
             repo_name=result.repo_name,
             graph_path=result.graph_path,
             metadata_path=result.metadata_path,
+            indexed_at=result.indexed_at,
+            source_last_modified_at=None,
+            freshness_status="CURRENT",
             stats=result.stats,
         )
         self.status_var.set(
-            f"Indexed {result.repo_name} | files={result.stats['file_count']} "
+            f"Indexed {result.repo_name} | freshness=CURRENT | files={result.stats['file_count']} "
             f"nodes={result.stats['node_count']} edges={result.stats['edge_count']}"
         )
         self.search_results = []
@@ -346,6 +368,8 @@ class CodeGraphGuiApp:
                 [
                     f"Repository: {result.repo_name}",
                     f"Repo ID: {result.repo_id}",
+                    f"Freshness: CURRENT",
+                    f"Indexed At: {result.indexed_at}",
                     f"Graph Path: {result.graph_path}",
                     f"Metadata Path: {result.metadata_path}",
                     "",
@@ -411,7 +435,10 @@ class CodeGraphGuiApp:
     def _needs_reindex(self, repo_path: Path) -> bool:
         if self.current_repo is None:
             return True
-        return Path(self.current_repo.source_repo_path) != repo_path
+        return (
+            Path(self.current_repo.source_repo_path) != repo_path
+            or self.current_repo.freshness_status != "CURRENT"
+        )
 
     def _ensure_indexed_then(self, callback: Callable[[IndexedRepoState], None]) -> None:
         try:
@@ -477,7 +504,7 @@ class CodeGraphGuiApp:
     def _handle_existing_index_result(self, repo: IndexedRepoState) -> None:
         self.current_repo = repo
         self.status_var.set(
-            f"Loaded existing index for {repo.repo_name} | "
+            f"Loaded existing index for {repo.repo_name} | freshness={repo.freshness_status} | "
             f"files={repo.stats['file_count']} nodes={repo.stats['node_count']} edges={repo.stats['edge_count']}"
         )
         self.search_results = []
@@ -487,6 +514,9 @@ class CodeGraphGuiApp:
                 [
                     f"Repository: {repo.repo_name}",
                     f"Repo ID: {repo.repo_id}",
+                    f"Freshness: {repo.freshness_status}",
+                    f"Indexed At: {repo.indexed_at}",
+                    f"Source Last Modified At: {repo.source_last_modified_at or 'unknown'}",
                     f"Graph Path: {repo.graph_path}",
                     f"Metadata Path: {repo.metadata_path}",
                     "",

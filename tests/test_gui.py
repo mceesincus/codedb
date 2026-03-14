@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
 from code_graph_core import index_repo
 from code_graph_core.gui import (
+    classify_index_freshness,
     format_search_result,
     format_symbol_context,
     load_existing_index_state,
@@ -81,3 +83,15 @@ def test_load_existing_index_state_reads_persisted_index(tmp_path: Path) -> None
     assert state.graph_path == result.graph_path
     assert state.metadata_path == result.metadata_path
     assert state.stats["file_count"] == 3
+    assert state.freshness_status == "CURRENT"
+
+
+def test_classify_index_freshness_detects_stale_metadata(tmp_path: Path) -> None:
+    repo = FIXTURES_ROOT / "py_basic_app"
+    result = index_repo(str(repo), index_root=str(tmp_path / "indexes"))
+    metadata_path = Path(result.metadata_path)
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["source_last_modified_at"] = "2000-01-01T00:00:00Z"
+    metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8")
+
+    assert classify_index_freshness(repo.resolve(), metadata) == "STALE"

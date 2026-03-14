@@ -53,6 +53,7 @@ def index_repo(path: str, index_root: str | None = None) -> IndexResult:
             graph_bundle=graph_bundle,
             repo_path=repo_path,
             graph_path=graph_path,
+            source_files=source_files,
         ),
     )
 
