@@ -48,6 +48,11 @@ Still deferred post-v1:
 - optional thin HTTP wrapper
 - process tracing APIs
 
+Historical note:
+
+- the milestone, work-breakdown, and ticket sections below are retained as the original delivery plan
+- they should now be read as implemented v1 history unless a section explicitly says post-v1 or deferred
+
 Guiding rule:
 
 - only add process tracing after the core query surfaces are stable

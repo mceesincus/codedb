@@ -381,22 +381,20 @@ System success:
 
 ## 18. Rollout Plan
 
-### Phase 1
+### Implemented v1
 
 - index repositories
 - build core graph
 - expose repo status, search, symbol context, impact
 - generate basic skills
+- provide a local terminal demo chatbot
+- provide a minimal local GUI explorer
 
-### Phase 2
+### Post-v1 candidates
 
 - improve resolution quality
 - improve output bounds and diagnostics
 - improve skill generation and related-skill links
-
-### Phase 3
-
-- add a minimal local demo chatbot over the stable core APIs
 - add process inference
 - incremental indexing
 - richer change analysis

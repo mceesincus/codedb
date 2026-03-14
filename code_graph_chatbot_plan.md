@@ -28,7 +28,7 @@ Workspace: `/mnt/c/work/india/codedb`
   - embedded KuzuDB for graph storage
   - Python core implemented as an in-process library first
   - optional thin local HTTP wrapper only after the library APIs are stable
-- Deterministic node types planned for v1:
+- Deterministic node types implemented for v1:
   - `Repository`
   - `Folder`
   - `File`
@@ -39,7 +39,7 @@ Workspace: `/mnt/c/work/india/codedb`
   - `ModuleSkill`
 - Reserved for post-v1.0 process tracing:
   - `Process`
-- Core relationship types planned for v1:
+- Core relationship types implemented for v1:
   - `CONTAINS`
   - `DEFINES`
   - `IMPORTS`
@@ -56,7 +56,7 @@ Workspace: `/mnt/c/work/india/codedb`
   - Milestone 2: search and symbol context
   - Milestone 3: impact analysis and skills API
   - Milestone 4: demo chatbot, hardening, and optional HTTP wrapper
-- Fixture-first development is planned with synthetic repos for:
+- Fixture-first development was executed with synthetic repos for:
   - TypeScript basics
   - Python basics
   - ambiguity handling

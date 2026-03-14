@@ -19,6 +19,11 @@ This document turns the PRD, technical spec, and execution plan into build-ready
 
 The minimal demo chatbot is a delivery requirement, but it should sit on top of these contracts rather than introduce a separate product API.
 
+Historical note:
+
+- the contract sections below reflect the implemented v1 surface
+- the ticket list is retained as build history and traceability, not as remaining work
+
 ## 2. Repository Identity
 
 Each indexed repository must have a stable `repo_id`.
@@ -815,7 +820,7 @@ Required behaviors:
 - service calls repository
 - upstream impact from service should surface handler and retry job
 
-## 7. First 10 Implementation Tickets
+## 7. Historical Initial Implementation Tickets
 
 ## Ticket 1: Bootstrap project skeleton
 

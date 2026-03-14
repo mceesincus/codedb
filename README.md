@@ -26,7 +26,7 @@ print(result)
 PY
 ```
 
-The current implementation covers the planned v1 surface:
+The current implementation covers the implemented v1 surface:
 
 - repository scanning with ignore rules
 - Tree-sitter parsing for Python and TypeScript/JavaScript
