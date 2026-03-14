@@ -77,4 +77,6 @@ Default source repo:
 - Windows: `C:\work\india\mssrc`
 - WSL/Linux: `/mnt/c/work/india/mssrc`
 
+If an index already exists under the GUI cache directory, the app loads it automatically on startup for the current repo path.
+
 Runtime note: the GUI uses `tkinter`, so the Python interpreter you run it with must include Tk support.

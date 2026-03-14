@@ -172,6 +172,7 @@ class CodeGraphGuiApp:
         self._busy_count = 0
 
         self._build_ui()
+        self._restore_existing_index_for_requested_repo()
         self.root.after(125, self._poll_events)
 
     def _build_ui(self) -> None:
@@ -390,6 +391,16 @@ class CodeGraphGuiApp:
         self._render_text(message)
         if messagebox is not None:
             messagebox.showerror("Code Graph Explorer", message)
+
+    def _restore_existing_index_for_requested_repo(self) -> None:
+        try:
+            repo_path = self._get_requested_repo_path()
+        except ValueError:
+            return
+
+        existing_state = load_existing_index_state(repo_path, self._index_root())
+        if existing_state is not None:
+            self._handle_existing_index_result(existing_state)
 
     def _get_requested_repo_path(self) -> Path:
         repo_path = normalize_repo_path(self.repo_path_var.get())
