@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from code_graph_core import get_symbol_context, index_repo, search
+from code_graph_core import get_repo_status, get_symbol_context, index_repo, search
 from tests.conftest import FIXTURES_ROOT
 
 
@@ -103,3 +103,16 @@ def test_get_symbol_context_returns_structured_ambiguity_response(tmp_path: Path
             "file_path": "src/users/models.py",
         },
     ]
+
+
+def test_get_repo_status_returns_metadata_summary(tmp_path: Path) -> None:
+    repo = FIXTURES_ROOT / "py_basic_app"
+    result = index_repo(str(repo), index_root=str(tmp_path / "indexes"))
+
+    response = get_repo_status(result.repo_id, metadata_path=result.metadata_path)
+
+    assert response["repo_id"] == result.repo_id
+    assert response["repo_name"] == "py_basic_app"
+    assert response["index_version"] == "v1"
+    assert response["languages_detected"] == ["python"]
+    assert response["stats"]["file_count"] == 3

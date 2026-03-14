@@ -35,6 +35,7 @@ The current implementation covers Milestone 2:
 - deterministic IDs
 - Kuzu schema bootstrap and persistence
 - metadata generation beside the index
+- `get_repo_status(repo_id)`
 - `search(repo_id, query, limit)`
 - `get_symbol_context(repo_id, symbol, file_path=None)`
 

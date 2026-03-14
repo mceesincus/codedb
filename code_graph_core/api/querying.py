@@ -5,7 +5,9 @@ import re
 from pathlib import Path
 
 from code_graph_core.storage.index_paths import graph_path as indexed_graph_path
+from code_graph_core.storage.index_paths import metadata_path as indexed_metadata_path
 from code_graph_core.storage.kuzu_store import KuzuStore
+from code_graph_core.storage.metadata import load_metadata
 
 DEFAULT_SEARCH_LIMIT = 10
 MAX_SEARCH_LIMIT = 50
@@ -61,6 +63,40 @@ def search(
             }
         )
     return {"results": results}
+
+
+def get_repo_status(
+    repo_id: str,
+    *,
+    metadata_path: str | None = None,
+    index_root: str | None = None,
+) -> dict[str, object]:
+    resolved_metadata_path = _resolve_metadata_path(
+        repo_id=repo_id,
+        metadata_path=metadata_path,
+        index_root=index_root,
+    )
+    metadata = load_metadata(resolved_metadata_path)
+    return {
+        "repo_id": metadata["repo_id"],
+        "repo_name": metadata["repo_name"],
+        "indexed_at": metadata["indexed_at"],
+        "index_version": metadata["index_version"],
+        "languages_detected": list(metadata.get("languages_detected", [])),
+        "stats": {
+            key: int(metadata.get(key, 0))
+            for key in (
+                "file_count",
+                "node_count",
+                "edge_count",
+                "skill_count",
+                "skipped_file_count",
+                "parse_error_count",
+                "unresolved_import_count",
+                "unresolved_call_count",
+            )
+        },
+    }
 
 
 def get_symbol_context(
@@ -316,3 +352,24 @@ def _error_response(code: str, message: str) -> dict[str, object]:
             "details": {},
         }
     }
+
+
+def _resolve_metadata_path(repo_id: str, metadata_path: str | None, index_root: str | None) -> Path:
+    if metadata_path is not None:
+        return Path(metadata_path).resolve()
+
+    candidates: list[Path] = []
+    cwd = Path.cwd().resolve()
+    if index_root is not None:
+        root = Path(index_root).resolve()
+        candidates.append(indexed_metadata_path(root, repo_id))
+        candidates.append(root / repo_id / "metadata.json")
+    candidates.append(indexed_metadata_path(cwd / ".code_graph", repo_id))
+    candidates.append(cwd / ".code_graph" / repo_id / "metadata.json")
+    candidates.append(indexed_metadata_path(cwd, repo_id))
+    candidates.append(cwd / repo_id / "metadata.json")
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(f"Could not locate metadata for repo_id '{repo_id}'")

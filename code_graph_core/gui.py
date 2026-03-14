@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from code_graph_core import get_repo_status
 from code_graph_core.storage.index_paths import graph_path as indexed_graph_path
 from code_graph_core.storage.index_paths import metadata_path as indexed_metadata_path
 from code_graph_core.storage.index_paths import repo_id_for_path
@@ -38,6 +39,8 @@ class IndexedRepoState:
     indexed_at: str
     source_last_modified_at: str | None
     freshness_status: str
+    index_version: str
+    languages_detected: list[str]
     stats: dict[str, int]
 
 
@@ -168,6 +171,8 @@ def load_existing_index_state(repo_path: Path, index_root: Path) -> IndexedRepoS
         indexed_at=str(metadata.get("indexed_at", "")),
         source_last_modified_at=str(metadata.get("source_last_modified_at")) if metadata.get("source_last_modified_at") else None,
         freshness_status=freshness_status,
+        index_version=str(metadata.get("index_version", "")),
+        languages_detected=[str(item) for item in metadata.get("languages_detected", [])],
         stats=stats,
     )
 
@@ -355,28 +360,14 @@ class CodeGraphGuiApp:
             indexed_at=result.indexed_at,
             source_last_modified_at=None,
             freshness_status="CURRENT",
+            index_version=result.index_version,
+            languages_detected=[],
             stats=result.stats,
         )
-        self.status_var.set(
-            f"Indexed {result.repo_name} | freshness=CURRENT | files={result.stats['file_count']} "
-            f"nodes={result.stats['node_count']} edges={result.stats['edge_count']}"
-        )
+        self._refresh_repo_status(self.current_repo)
         self.search_results = []
         self.results_list.delete(0, tk.END)
-        self._render_text(
-            "\n".join(
-                [
-                    f"Repository: {result.repo_name}",
-                    f"Repo ID: {result.repo_id}",
-                    f"Freshness: CURRENT",
-                    f"Indexed At: {result.indexed_at}",
-                    f"Graph Path: {result.graph_path}",
-                    f"Metadata Path: {result.metadata_path}",
-                    "",
-                    json.dumps(result.stats, indent=2, sort_keys=True),
-                ]
-            )
-        )
+        self._render_text(self._repo_summary_text(self.current_repo))
 
     def _handle_search_results(self, response: dict[str, Any]) -> None:
         self.search_results = response["results"]
@@ -425,6 +416,34 @@ class CodeGraphGuiApp:
         existing_state = load_existing_index_state(repo_path, self._index_root())
         if existing_state is not None:
             self._handle_existing_index_result(existing_state)
+
+    def _refresh_repo_status(self, repo: IndexedRepoState) -> None:
+        response = get_repo_status(repo.repo_id, metadata_path=repo.metadata_path)
+        repo.index_version = str(response.get("index_version", repo.index_version))
+        repo.languages_detected = [str(item) for item in response.get("languages_detected", [])]
+        repo.stats = {key: int(value) for key, value in dict(response.get("stats", {})).items()}
+        self.status_var.set(
+            f"{repo.repo_name} | freshness={repo.freshness_status} | files={repo.stats['file_count']} "
+            f"nodes={repo.stats['node_count']} edges={repo.stats['edge_count']}"
+        )
+
+    @staticmethod
+    def _repo_summary_text(repo: IndexedRepoState) -> str:
+        return "\n".join(
+            [
+                f"Repository: {repo.repo_name}",
+                f"Repo ID: {repo.repo_id}",
+                f"Freshness: {repo.freshness_status}",
+                f"Index Version: {repo.index_version or 'unknown'}",
+                f"Indexed At: {repo.indexed_at}",
+                f"Source Last Modified At: {repo.source_last_modified_at or 'unknown'}",
+                f"Languages: {', '.join(repo.languages_detected) if repo.languages_detected else 'unknown'}",
+                f"Graph Path: {repo.graph_path}",
+                f"Metadata Path: {repo.metadata_path}",
+                "",
+                json.dumps(repo.stats, indent=2, sort_keys=True),
+            ]
+        )
 
     def _get_requested_repo_path(self) -> Path:
         repo_path = normalize_repo_path(self.repo_path_var.get())
@@ -503,27 +522,10 @@ class CodeGraphGuiApp:
 
     def _handle_existing_index_result(self, repo: IndexedRepoState) -> None:
         self.current_repo = repo
-        self.status_var.set(
-            f"Loaded existing index for {repo.repo_name} | freshness={repo.freshness_status} | "
-            f"files={repo.stats['file_count']} nodes={repo.stats['node_count']} edges={repo.stats['edge_count']}"
-        )
+        self._refresh_repo_status(repo)
         self.search_results = []
         self.results_list.delete(0, tk.END)
-        self._render_text(
-            "\n".join(
-                [
-                    f"Repository: {repo.repo_name}",
-                    f"Repo ID: {repo.repo_id}",
-                    f"Freshness: {repo.freshness_status}",
-                    f"Indexed At: {repo.indexed_at}",
-                    f"Source Last Modified At: {repo.source_last_modified_at or 'unknown'}",
-                    f"Graph Path: {repo.graph_path}",
-                    f"Metadata Path: {repo.metadata_path}",
-                    "",
-                    json.dumps(repo.stats, indent=2, sort_keys=True),
-                ]
-            )
-        )
+        self._render_text(self._repo_summary_text(repo))
 
     @staticmethod
     def _index_root() -> Path:
