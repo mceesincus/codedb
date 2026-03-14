@@ -4,7 +4,7 @@ import json
 import re
 from pathlib import Path
 
-from code_graph_core.storage.index_paths import index_dir_name
+from code_graph_core.storage.index_paths import graph_path as indexed_graph_path
 from code_graph_core.storage.kuzu_store import KuzuStore
 
 DEFAULT_SEARCH_LIMIT = 10
@@ -249,14 +249,13 @@ class _IndexReader:
 
         candidates: list[Path] = []
         cwd = Path.cwd().resolve()
-        safe_dir_name = index_dir_name(repo_id)
         if index_root is not None:
             root = Path(index_root).resolve()
-            candidates.append(root / safe_dir_name / "graph.kuzu")
+            candidates.append(indexed_graph_path(root, repo_id))
             candidates.append(root / repo_id / "graph.kuzu")
-        candidates.append(cwd / ".code_graph" / safe_dir_name / "graph.kuzu")
+        candidates.append(indexed_graph_path(cwd / ".code_graph", repo_id))
         candidates.append(cwd / ".code_graph" / repo_id / "graph.kuzu")
-        candidates.append(cwd / safe_dir_name / "graph.kuzu")
+        candidates.append(indexed_graph_path(cwd, repo_id))
         candidates.append(cwd / repo_id / "graph.kuzu")
 
         for candidate in candidates:

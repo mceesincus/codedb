@@ -8,7 +8,8 @@ from code_graph_core.graph.models import GraphBundle
 from code_graph_core.ingestion.parser import ParserRegistry
 from code_graph_core.ingestion.scanner import RepositoryScanner
 from code_graph_core.ingestion.symbol_extractor import SymbolExtractor
-from code_graph_core.storage.index_paths import index_dir_name
+from code_graph_core.storage.index_paths import graph_path as indexed_graph_path
+from code_graph_core.storage.index_paths import metadata_path as indexed_metadata_path
 from code_graph_core.storage.kuzu_store import KuzuStore
 from code_graph_core.storage.metadata import metadata_payload, write_metadata
 
@@ -38,9 +39,8 @@ def index_repo(path: str, index_root: str | None = None) -> IndexResult:
     graph_bundle: GraphBundle = GraphBuilder().build(repo_path=repo_path, extracted_files=extracted_files)
 
     output_root = Path(index_root).resolve() if index_root else repo_path / ".code_graph"
-    index_dir = output_root / index_dir_name(graph_bundle.repo_id)
-    graph_path = index_dir / "graph.kuzu"
-    metadata_path = index_dir / "metadata.json"
+    graph_path = indexed_graph_path(output_root, graph_bundle.repo_id)
+    metadata_path = indexed_metadata_path(output_root, graph_bundle.repo_id)
 
     store = KuzuStore(graph_path)
     store.reinitialize()

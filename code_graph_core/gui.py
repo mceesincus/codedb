@@ -9,6 +9,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from code_graph_core.storage.index_paths import graph_path as indexed_graph_path
+from code_graph_core.storage.index_paths import metadata_path as indexed_metadata_path
+from code_graph_core.storage.index_paths import repo_id_for_path
+from code_graph_core.storage.metadata import load_metadata
+
 try:
     import tkinter as tk
     from tkinter import messagebox, ttk
@@ -115,6 +120,37 @@ def format_symbol_context(payload: dict[str, Any]) -> str:
         lines.append("- none")
 
     return "\n".join(lines)
+
+
+def load_existing_index_state(repo_path: Path, index_root: Path) -> IndexedRepoState | None:
+    repo_id = repo_id_for_path(repo_path)
+    graph_path = indexed_graph_path(index_root, repo_id)
+    metadata_path = indexed_metadata_path(index_root, repo_id)
+    if not graph_path.exists() or not metadata_path.exists():
+        return None
+
+    metadata = load_metadata(metadata_path)
+    stats = {
+        key: int(metadata.get(key, 0))
+        for key in (
+            "edge_count",
+            "file_count",
+            "node_count",
+            "parse_error_count",
+            "skill_count",
+            "skipped_file_count",
+            "unresolved_call_count",
+            "unresolved_import_count",
+        )
+    }
+    return IndexedRepoState(
+        source_repo_path=str(repo_path),
+        repo_id=str(metadata["repo_id"]),
+        repo_name=str(metadata["repo_name"]),
+        graph_path=str(graph_path),
+        metadata_path=str(metadata_path),
+        stats=stats,
+    )
 
 
 class CodeGraphGuiApp:
@@ -377,6 +413,12 @@ class CodeGraphGuiApp:
             callback(self.current_repo)
             return
 
+        existing_state = load_existing_index_state(repo_path, self._index_root())
+        if existing_state is not None:
+            self._handle_existing_index_result(existing_state)
+            callback(existing_state)
+            return
+
         self._run_background(
             started_message=f"Indexing {repo_path} ...",
             job=lambda: self._index_repo(str(repo_path)),
@@ -419,6 +461,27 @@ class CodeGraphGuiApp:
                 graph_path=repo.graph_path,
             ),
             success=self._handle_symbol_context,
+        )
+
+    def _handle_existing_index_result(self, repo: IndexedRepoState) -> None:
+        self.current_repo = repo
+        self.status_var.set(
+            f"Loaded existing index for {repo.repo_name} | "
+            f"files={repo.stats['file_count']} nodes={repo.stats['node_count']} edges={repo.stats['edge_count']}"
+        )
+        self.search_results = []
+        self.results_list.delete(0, tk.END)
+        self._render_text(
+            "\n".join(
+                [
+                    f"Repository: {repo.repo_name}",
+                    f"Repo ID: {repo.repo_id}",
+                    f"Graph Path: {repo.graph_path}",
+                    f"Metadata Path: {repo.metadata_path}",
+                    "",
+                    json.dumps(repo.stats, indent=2, sort_keys=True),
+                ]
+            )
         )
 
     @staticmethod

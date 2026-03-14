@@ -1,8 +1,16 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
-from code_graph_core.gui import format_search_result, format_symbol_context, normalize_repo_path
+from code_graph_core import index_repo
+from code_graph_core.gui import (
+    format_search_result,
+    format_symbol_context,
+    load_existing_index_state,
+    normalize_repo_path,
+)
+from tests.conftest import FIXTURES_ROOT
 
 
 def test_normalize_repo_path_converts_windows_path_on_posix() -> None:
@@ -60,3 +68,16 @@ def test_format_symbol_context_includes_key_sections() -> None:
     assert "- create_invoice_handler (src/billing/api.py, confidence=1.0)" in formatted
     assert "Callees:" in formatted
     assert "Related files:" in formatted
+
+
+def test_load_existing_index_state_reads_persisted_index(tmp_path: Path) -> None:
+    repo = FIXTURES_ROOT / "py_basic_app"
+    result = index_repo(str(repo), index_root=str(tmp_path / "indexes"))
+
+    state = load_existing_index_state(repo.resolve(), tmp_path / "indexes")
+
+    assert state is not None
+    assert state.repo_id == result.repo_id
+    assert state.graph_path == result.graph_path
+    assert state.metadata_path == result.metadata_path
+    assert state.stats["file_count"] == 3
