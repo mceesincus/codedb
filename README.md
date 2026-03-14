@@ -113,4 +113,5 @@ Commands:
 - `skill <name>`
 - `impact <target> [upstream|downstream] [depth]`
 
-Any unrecognized input falls back to `search`.
+The REPL also routes a few common chat-style prompts such as `what calls generateInvoice?`, `show context for save`, and `list skills`.
+Any other input falls back to `search`.

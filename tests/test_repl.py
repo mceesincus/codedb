@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from code_graph_core.repl import CodeGraphRepl, format_repl_help, format_search_payload
+from code_graph_core.repl import (
+    CodeGraphRepl,
+    format_repl_help,
+    format_search_payload,
+    infer_repl_command,
+)
 from tests.conftest import FIXTURES_ROOT
 
 
@@ -11,7 +16,8 @@ def test_format_repl_help_lists_supported_commands() -> None:
 
     assert "repo [path]" in formatted
     assert "context <symbol> [file_path]" in formatted
-    assert "Any unrecognized input runs a search" in formatted
+    assert "Natural-language prompts are also routed" in formatted
+    assert "Any other input runs a search" in formatted
 
 
 def test_format_search_payload_is_readable() -> None:
@@ -35,6 +41,24 @@ def test_format_search_payload_is_readable() -> None:
     assert "Exact symbol match" in formatted
 
 
+def test_infer_repl_command_routes_common_natural_language_prompts() -> None:
+    assert infer_repl_command("what calls generateInvoice?") == (
+        "impact",
+        ["generateInvoice", "upstream", "1"],
+    )
+    assert infer_repl_command("what does generateInvoice call?") == (
+        "impact",
+        ["generateInvoice", "downstream", "1"],
+    )
+    assert infer_repl_command("show context for generate_invoice in src/billing/service.py") == (
+        "context",
+        ["generate_invoice", "src/billing/service.py"],
+    )
+    assert infer_repl_command("list skills") == ("skills", [])
+    assert infer_repl_command("show skill billing") == ("skill", ["billing"])
+    assert infer_repl_command("what is the repo status?") == ("status", [])
+
+
 def test_repl_bare_query_falls_back_to_search(tmp_path: Path) -> None:
     output: list[str] = []
     repl = CodeGraphRepl(
@@ -48,6 +72,21 @@ def test_repl_bare_query_falls_back_to_search(tmp_path: Path) -> None:
 
     assert "Search results:" in response
     assert "create_service" in response
+
+
+def test_repl_natural_language_prompt_routes_to_impact(tmp_path: Path) -> None:
+    output: list[str] = []
+    repl = CodeGraphRepl(
+        repo_path=str(FIXTURES_ROOT / "impact_app"),
+        index_root=tmp_path / "indexes",
+        output=output.append,
+        show_progress=False,
+    )
+
+    response = repl.execute_line("what calls generateInvoice?")
+
+    assert "Impact: generateInvoice" in response
+    assert "direction: upstream" in response
 
 
 def test_repl_context_command_returns_symbol_context(tmp_path: Path) -> None:

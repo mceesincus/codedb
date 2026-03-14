@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import shlex
 from pathlib import Path
 from typing import Callable
@@ -43,7 +44,9 @@ def format_repl_help() -> str:
             "  impact <target> [upstream|downstream] [depth]",
             "  exit | quit",
             "",
-            "Any unrecognized input runs a search against the active repo.",
+            "Natural-language prompts are also routed when they match common intents.",
+            "Examples: `what calls generateInvoice?`, `show context for save`, `list skills`.",
+            "Any other input runs a search against the active repo.",
         ]
     )
 
@@ -80,6 +83,131 @@ def format_repo_summary(repo: IndexedRepoState) -> str:
             f"Unresolved Calls: {repo.stats.get('unresolved_call_count', 0)}",
         ]
     )
+
+
+def infer_repl_command(raw_line: str) -> tuple[str, list[str]] | None:
+    normalized = raw_line.strip()
+    if not normalized:
+        return None
+
+    lowered = normalized.lower().strip(" ?!.")
+    if not lowered:
+        return None
+
+    if lowered in {"help", "show help", "what can you do", "commands"}:
+        return "help", []
+    if lowered in {"status", "repo status", "repository status", "what is the repo status", "what's the repo status"}:
+        return "status", []
+    if lowered in {"skills", "list skills", "show skills", "what skills are there", "what skills exist"}:
+        return "skills", []
+    if lowered in {"index", "index repo", "index repository", "index the repo", "index the repository"}:
+        return "index", []
+    if lowered in {"quit", "exit", "bye"}:
+        return "exit", []
+
+    skill_name = _match_named_tail(
+        normalized,
+        (
+            r"show skill (?P<value>.+)",
+            r"describe skill (?P<value>.+)",
+            r"tell me about skill (?P<value>.+)",
+            r"open skill (?P<value>.+)",
+        ),
+    )
+    if skill_name is not None:
+        return "skill", [skill_name]
+
+    repo_path = _match_named_tail(
+        normalized,
+        (
+            r"(?:use|set|switch to) repo(?:sitory)? (?P<value>.+)",
+            r"repo(?:sitory)? (?P<value>[A-Za-z]:[\\/].+)",
+            r"repo(?:sitory)? (?P<value>/.*)",
+        ),
+    )
+    if repo_path is not None:
+        return "repo", [repo_path]
+
+    context_match = re.match(
+        r"(?i)(?:show|get|load|explain|describe)(?: me)? context for (?P<symbol>.+?)(?: in (?P<file>.+))?$",
+        normalized.strip(" ?!."),
+    )
+    if context_match:
+        symbol = context_match.group("symbol").strip()
+        file_path = _clean_reference_token(context_match.group("file"))
+        args = [symbol]
+        if file_path:
+            args.append(file_path)
+        return "context", args
+
+    callers_target = _extract_symbol_reference(
+        normalized,
+        (
+            r"(?i)(?:what|who) calls (?P<value>.+)",
+            r"(?i)show callers(?: for| of)? (?P<value>.+)",
+            r"(?i)who uses (?P<value>.+)",
+            r"(?i)what uses (?P<value>.+)",
+            r"(?i)upstream(?: impact)?(?: for| of)? (?P<value>.+)",
+        ),
+    )
+    if callers_target is not None:
+        return "impact", [callers_target, "upstream", "1"]
+
+    callees_target = _extract_symbol_reference(
+        normalized,
+        (
+            r"(?i)what does (?P<value>.+) call",
+            r"(?i)show callees(?: for| of)? (?P<value>.+)",
+            r"(?i)downstream(?: impact)?(?: for| of)? (?P<value>.+)",
+            r"(?i)what is impacted downstream from (?P<value>.+)",
+        ),
+    )
+    if callees_target is not None:
+        return "impact", [callees_target, "downstream", "1"]
+
+    impact_match = re.match(
+        r"(?i)(?:show|get|what is )?(?P<direction>upstream|downstream) impact(?: for| of)? (?P<target>.+?)(?: depth (?P<depth>\d+))?$",
+        normalized.strip(" ?!."),
+    )
+    if impact_match:
+        depth = impact_match.group("depth") or "2"
+        return "impact", [impact_match.group("target").strip(), impact_match.group("direction").lower(), depth]
+
+    return None
+
+
+def _match_named_tail(raw_line: str, patterns: tuple[str, ...]) -> str | None:
+    stripped = raw_line.strip(" ?!.")
+    for pattern in patterns:
+        match = re.match(pattern, stripped, flags=re.IGNORECASE)
+        if match:
+            return _clean_reference_token(match.group("value"))
+    return None
+
+
+def _extract_symbol_reference(raw_line: str, patterns: tuple[str, ...]) -> str | None:
+    stripped = raw_line.strip(" ?!.")
+    for pattern in patterns:
+        match = re.match(pattern, stripped, flags=re.IGNORECASE)
+        if match:
+            return _clean_symbol_phrase(match.group("value"))
+    return None
+
+
+def _clean_symbol_phrase(value: str | None) -> str:
+    cleaned = _clean_reference_token(value)
+    cleaned = re.sub(r"\b(?:please|now)\b", "", cleaned, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned
+
+
+def _clean_reference_token(value: str | None) -> str:
+    if value is None:
+        return ""
+    cleaned = value.strip().strip(" ?!.,")
+    if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in {"'", '"', "`"}:
+        cleaned = cleaned[1:-1].strip()
+    return cleaned
 
 
 class CodeGraphRepl:
@@ -155,6 +283,11 @@ class CodeGraphRepl:
 
         handler = handlers.get(command)
         if handler is None:
+            inferred = infer_repl_command(raw_line)
+            if inferred is not None:
+                inferred_command, inferred_args = inferred
+                inferred_handler = handlers[inferred_command]
+                return inferred_handler(inferred_args, raw_line)
             return self._run_search(raw_line)
         return handler(args, raw_line)
 
