@@ -3,7 +3,7 @@ from __future__ import annotations
 from code_graph_core.ingestion.parser import ParserRegistry
 from code_graph_core.ingestion.scanner import RepositoryScanner
 from code_graph_core.ingestion.symbol_extractor import SymbolExtractor
-from code_graph_core.languages.shared import normalize_call_target
+from code_graph_core.languages.shared import extract_type_references, normalize_call_target
 from tests.conftest import FIXTURES_ROOT
 
 
@@ -43,3 +43,8 @@ def test_normalize_call_target_extracts_terminal_identifier() -> None:
     assert normalize_call_target('console.log("hello")') == "log"
     assert normalize_call_target("promise.then(fn)") == "then"
     assert normalize_call_target("repository.save(order_id)") == "save"
+
+
+def test_extract_type_references_normalizes_simple_type_lists() -> None:
+    assert extract_type_references("Reader, StreamReader") == ["Reader", "StreamReader"]
+    assert extract_type_references("pkg.Reader, FileReader<string>") == ["Reader", "FileReader"]

@@ -31,6 +31,7 @@ def search(
         return {"results": []}
 
     reader = _IndexReader(repo_id=repo_id, graph_path=graph_path, index_root=index_root)
+    skill_by_node = reader.load_skill_memberships()
     scored_results = []
     for candidate in reader.load_search_candidates():
         ranking = _score_candidate(candidate, normalized_query)
@@ -49,6 +50,10 @@ def search(
 
     results = []
     for score, reason, candidate in scored_results[:bounded_limit]:
+        skill_name = skill_by_node.get(candidate["node_id"])
+        result_reason = reason
+        if skill_name:
+            result_reason = f"{reason}; linked to {skill_name} skill"
         results.append(
             {
                 "node_id": candidate["node_id"],
@@ -57,9 +62,9 @@ def search(
                 "file_path": candidate["file_path"],
                 "start_line": candidate["start_line"],
                 "end_line": candidate["end_line"],
-                "skill": None,
+                "skill": skill_name,
                 "score": round(score, 2),
-                "reason": reason,
+                "reason": result_reason,
             }
         )
     return {"results": results}
@@ -137,6 +142,8 @@ def get_symbol_context(
     target = candidates[0]
     callers = reader.load_callers(target["node_id"])
     callees = reader.load_callees(target["node_id"])
+    skill_by_node = reader.load_skill_memberships()
+    dependencies = reader.load_imported_files(target["file_path"])
     related_files = sorted(
         {
             item["file_path"]
@@ -144,6 +151,7 @@ def get_symbol_context(
             if item["file_path"] and item["file_path"] != target["file_path"]
         }
     )
+    related_files = sorted(set(related_files) | set(dependencies))
 
     symbol_payload = {
         "node_id": target["node_id"],
@@ -153,7 +161,7 @@ def get_symbol_context(
         "start_line": target["start_line"],
         "end_line": target["end_line"],
         "signature": target["signature"],
-        "skill": None,
+        "skill": skill_by_node.get(target["node_id"]),
     }
     if target["type"] == "Method" and target["owner_name"]:
         symbol_payload["containing_class"] = target["owner_name"]
@@ -162,6 +170,7 @@ def get_symbol_context(
         "symbol": symbol_payload,
         "callers": callers[:MAX_CONTEXT_NEIGHBORS],
         "callees": callees[:MAX_CONTEXT_NEIGHBORS],
+        "dependencies": dependencies[:MAX_CONTEXT_NEIGHBORS],
         "related_files": related_files,
     }
 
@@ -356,6 +365,17 @@ class _IndexReader:
             for row in rows
             if row["node"].get("_label") in CONTEXT_CALL_LABELS
         ]
+
+    def load_imported_files(self, file_path: str) -> list[str]:
+        rows = self._rows(
+            f"""
+            MATCH (source:File)-[r:CodeRelation]->(target:File)
+            WHERE r.type = 'IMPORTS' AND source.file_path = {self._literal(file_path)}
+            RETURN target.file_path AS file_path
+            ORDER BY target.file_path;
+            """
+        )
+        return [str(row["file_path"]) for row in rows]
 
     def load_skill_summaries(self) -> list[dict[str, object]]:
         rows = self._rows(

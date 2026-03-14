@@ -67,5 +67,8 @@ Workspace: `/mnt/c/work/india/codedb`
   - `/mnt/c/work/india/codedb/tech-spec-code-graph-chatbot.md`
   - `/mnt/c/work/india/codedb/execution-plan-code-graph-chatbot.md`
   - `/mnt/c/work/india/codedb/schema-and-contract-pack-code-graph-chatbot.md`
-- The next implementation step is to scaffold the project and begin Milestone 1 from the execution plan and first 10 tickets in the schema/contract pack.
+- Current implementation status:
+  - Milestones 1 through 4 are complete for the in-process library, local REPL chatbot, and local GUI demo surfaces
+  - the optional thin HTTP wrapper remains deferred
+  - process tracing remains reserved for post-v1
 - The initial schema bootstrap should exclude `Process` and `STEP_IN_PROCESS`; those stay reserved until post-v1.

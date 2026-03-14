@@ -24,6 +24,7 @@ def test_search_prefers_exact_symbol_match_over_loose_path_match(tmp_path: Path)
     first_result = response["results"][0]
     assert first_result["name"] == "create_service"
     assert first_result["type"] == "Function"
+    assert first_result["skill"] == "billing"
     assert "Exact symbol match" in first_result["reason"]
 
 
@@ -40,6 +41,7 @@ def test_get_symbol_context_returns_direct_callers_and_callees_for_python_fixtur
 
     assert response["symbol"]["node_id"].startswith("method:src/billing/service.py:BillingService:generate_invoice:")
     assert response["symbol"]["containing_class"] == "BillingService"
+    assert response["symbol"]["skill"] == "billing"
     assert response["callers"] == [
         {
             "node_id": "function:src/billing/api.py:create_invoice_handler:4",
@@ -56,6 +58,7 @@ def test_get_symbol_context_returns_direct_callers_and_callees_for_python_fixtur
             "confidence": 1.0,
         }
     ]
+    assert response["dependencies"] == ["src/billing/repository.py"]
     assert response["related_files"] == [
         "src/billing/api.py",
         "src/billing/repository.py",

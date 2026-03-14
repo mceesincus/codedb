@@ -1,6 +1,6 @@
 # codedb
 
-Milestone 1 scaffolding for a local-first code graph indexing core.
+Implemented v1 for a local-first code graph indexing core and demo chatbot surface.
 
 ## Setup
 
@@ -26,12 +26,13 @@ print(result)
 PY
 ```
 
-The current implementation covers Milestone 2:
+The current implementation covers the planned v1 surface:
 
 - repository scanning with ignore rules
 - Tree-sitter parsing for Python and TypeScript/JavaScript
 - symbol extraction for files, functions, classes, methods, and interfaces
 - basic import and call resolution for direct symbol context
+- inheritance edges for `EXTENDS` and `IMPLEMENTS`
 - deterministic IDs
 - Kuzu schema bootstrap and persistence
 - metadata generation beside the index
@@ -41,6 +42,8 @@ The current implementation covers Milestone 2:
 - `get_impact(repo_id, target, direction, depth=2)`
 - `list_skills(repo_id)`
 - `get_skill(repo_id, skill_name)`
+- minimal terminal REPL chatbot
+- minimal local GUI client
 
 ## Query an Indexed Repository
 

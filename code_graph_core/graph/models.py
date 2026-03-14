@@ -57,6 +57,16 @@ class CallRecord:
 
 
 @dataclass(slots=True)
+class InheritanceRecord:
+    source_symbol_id: str
+    source_kind: str
+    file_path: str
+    target_name: str
+    target_kind: str
+    relation_type: str
+
+
+@dataclass(slots=True)
 class ExtractedSymbol:
     id: str
     kind: str
@@ -97,6 +107,7 @@ class ExtractionResult:
     symbols: list[ExtractedSymbol] = field(default_factory=list)
     imports: list[ImportRecord] = field(default_factory=list)
     calls: list[CallRecord] = field(default_factory=list)
+    inheritance: list[InheritanceRecord] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -153,4 +164,3 @@ class GraphBundle:
     stats: IndexStats
     imports: list[ImportRecord] = field(default_factory=list)
     calls: list[CallRecord] = field(default_factory=list)
-

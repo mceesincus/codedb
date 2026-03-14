@@ -1,7 +1,7 @@
 # Product Requirements Document
 ## Local Code Graph Intelligence Core for Chatbot Integration
 
-Status: Draft v1
+Status: Implemented v1
 
 ## 1. Overview
 
@@ -10,6 +10,12 @@ This product is a clean-room reimplementation of the useful core ideas behind gr
 The system indexes a source repository into a local graph representation and exposes graph-derived capabilities directly to a custom chatbot through a small API surface. In addition to symbol and dependency queries, the system must expose `skills` as API resources: compact, generated module-context objects that can be fetched and injected into chatbot prompts on demand.
 
 The product is local-first, embedded, and optimized for chatbot assistance on software repositories. The v1 deliverable should also include a minimal local demo chatbot so the core features can be exercised end to end.
+
+Current v1 implementation notes:
+
+- the in-process Python API is implemented
+- the minimal local demo chatbot is implemented as a terminal REPL
+- a minimal local desktop GUI is also included as an auxiliary demo surface
 
 ## 2. Problem
 
@@ -206,6 +212,8 @@ The demo chatbot must:
 - choose among the core APIs or simple intent routing to answer repository questions
 - render structured results from search, symbol context, impact, repo status, and skills
 - make it easy to demonstrate the system end to end on fixture repositories
+
+The current implementation satisfies this requirement primarily through a terminal REPL with rule-based intent routing and conversational follow-up state.
 
 The demo chatbot does not need:
 

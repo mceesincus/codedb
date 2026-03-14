@@ -4,8 +4,24 @@ from hashlib import sha256
 
 from tree_sitter import Node
 
-from code_graph_core.graph.models import CallRecord, ExtractedSymbol, ExtractionResult, ImportRecord, ParsedFile
-from code_graph_core.languages.shared import child_text, compact_signature, line_span, normalize_call_target, walk
+import re
+
+from code_graph_core.graph.models import (
+    CallRecord,
+    ExtractedSymbol,
+    ExtractionResult,
+    ImportRecord,
+    InheritanceRecord,
+    ParsedFile,
+)
+from code_graph_core.languages.shared import (
+    child_text,
+    compact_signature,
+    extract_type_references,
+    line_span,
+    normalize_call_target,
+    walk,
+)
 
 
 class TypeScriptExtractor:
@@ -47,6 +63,8 @@ class TypeScriptExtractor:
                         is_exported=is_exported,
                     )
                 )
+                class_symbol = result.symbols[-1]
+                result.inheritance.extend(self._extract_class_relationships(class_symbol.id, node, parsed_file))
                 body = node.child_by_field_name("body") or node.children[-1]
                 for member in body.children:
                     if member.type == "method_definition":
@@ -76,9 +94,74 @@ class TypeScriptExtractor:
                         is_exported=is_exported,
                     )
                 )
+                interface_symbol = result.symbols[-1]
+                result.inheritance.extend(
+                    self._extract_interface_relationships(interface_symbol.id, node, parsed_file)
+                )
 
         result.calls.extend(self._extract_calls(parsed_file, result.symbols))
         return result
+
+    def _extract_class_relationships(
+        self,
+        source_symbol_id: str,
+        node: Node,
+        parsed_file: ParsedFile,
+    ) -> list[InheritanceRecord]:
+        header = compact_signature(node, parsed_file.source_text)
+        relationships: list[InheritanceRecord] = []
+
+        extends_match = re.search(r"\bextends\s+(?P<targets>.+?)(?:\bimplements\b|\{)", header)
+        if extends_match is not None:
+            for target_name in extract_type_references(extends_match.group("targets")):
+                relationships.append(
+                    InheritanceRecord(
+                        source_symbol_id=source_symbol_id,
+                        source_kind="Class",
+                        file_path=parsed_file.source_file.relative_path,
+                        target_name=target_name,
+                        target_kind="Class",
+                        relation_type="EXTENDS",
+                    )
+                )
+
+        implements_match = re.search(r"\bimplements\s+(?P<targets>.+?)(?:\{)?$", header)
+        if implements_match is not None:
+            for target_name in extract_type_references(implements_match.group("targets")):
+                relationships.append(
+                    InheritanceRecord(
+                        source_symbol_id=source_symbol_id,
+                        source_kind="Class",
+                        file_path=parsed_file.source_file.relative_path,
+                        target_name=target_name,
+                        target_kind="Interface",
+                        relation_type="IMPLEMENTS",
+                    )
+                )
+
+        return relationships
+
+    def _extract_interface_relationships(
+        self,
+        source_symbol_id: str,
+        node: Node,
+        parsed_file: ParsedFile,
+    ) -> list[InheritanceRecord]:
+        header = compact_signature(node, parsed_file.source_text)
+        extends_match = re.search(r"\bextends\s+(?P<targets>.+?)(?:\{)?$", header)
+        if extends_match is None:
+            return []
+        return [
+            InheritanceRecord(
+                source_symbol_id=source_symbol_id,
+                source_kind="Interface",
+                file_path=parsed_file.source_file.relative_path,
+                target_name=target_name,
+                target_kind="Interface",
+                relation_type="EXTENDS",
+            )
+            for target_name in extract_type_references(extends_match.group("targets"))
+        ]
 
     def _extract_import(self, node: Node, parsed_file: ParsedFile) -> ImportRecord:
         module_node = next((child for child in node.children if child.type == "string"), None)

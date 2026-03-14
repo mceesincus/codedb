@@ -4,8 +4,24 @@ from hashlib import sha256
 
 from tree_sitter import Node
 
-from code_graph_core.graph.models import CallRecord, ExtractedSymbol, ExtractionResult, ImportRecord, ParsedFile
-from code_graph_core.languages.shared import child_text, compact_signature, line_span, normalize_call_target, walk
+import re
+
+from code_graph_core.graph.models import (
+    CallRecord,
+    ExtractedSymbol,
+    ExtractionResult,
+    ImportRecord,
+    InheritanceRecord,
+    ParsedFile,
+)
+from code_graph_core.languages.shared import (
+    child_text,
+    compact_signature,
+    extract_type_references,
+    line_span,
+    normalize_call_target,
+    walk,
+)
 
 
 class PythonExtractor:
@@ -45,6 +61,7 @@ class PythonExtractor:
                     is_exported=True,
                 )
                 result.symbols.append(class_symbol)
+                result.inheritance.extend(self._extract_class_inheritance(class_symbol.id, child, parsed_file))
                 block = child.child_by_field_name("body") or child.children[-1]
                 for member in block.children:
                     if member.type == "function_definition":
@@ -62,6 +79,29 @@ class PythonExtractor:
 
         result.calls.extend(self._extract_calls(parsed_file, result.symbols))
         return result
+
+    def _extract_class_inheritance(
+        self,
+        source_symbol_id: str,
+        node: Node,
+        parsed_file: ParsedFile,
+    ) -> list[InheritanceRecord]:
+        header = compact_signature(node, parsed_file.source_text)
+        match = re.search(r"class\s+[A-Za-z_][A-Za-z0-9_]*\((?P<bases>[^)]*)\)", header)
+        if match is None:
+            return []
+        return [
+            InheritanceRecord(
+                source_symbol_id=source_symbol_id,
+                source_kind="Class",
+                file_path=parsed_file.source_file.relative_path,
+                target_name=base_name,
+                target_kind="Class",
+                relation_type="EXTENDS",
+            )
+            for base_name in extract_type_references(match.group("bases"))
+            if base_name != "object"
+        ]
 
     def _extract_import_statement(self, node: Node, parsed_file: ParsedFile) -> list[ImportRecord]:
         imports = []

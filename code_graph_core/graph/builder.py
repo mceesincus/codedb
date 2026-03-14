@@ -72,11 +72,13 @@ class GraphBuilder:
 
         imports = []
         calls = []
+        inheritance = []
 
         for extracted in extracted_files:
             source_file = extracted.parsed_file.source_file
             imports.extend(extracted.imports)
             calls.extend(extracted.calls)
+            inheritance.extend(extracted.inheritance)
 
             file_id = self._file_id(source_file.relative_path)
             file_nodes[source_file.relative_path] = NodeRecord(
@@ -201,6 +203,15 @@ class GraphBuilder:
         )
         relationships.extend(call_relationships)
 
+        inheritance_relationships = self._resolve_inheritance(
+            inheritance=inheritance,
+            symbols_by_file=symbols_by_file,
+            symbol_kinds=symbol_kinds,
+            imported_files_by_source=imported_files_by_source,
+            imported_symbols_by_source=imported_symbols_by_source,
+        )
+        relationships.extend(inheritance_relationships)
+
         skill_nodes, skill_relationships, skill_count = self._materialize_skills(
             repo_id=repo_id,
             indexed_at=indexed_at,
@@ -209,7 +220,7 @@ class GraphBuilder:
             node_file_paths=node_file_paths,
             node_names=node_names,
             node_owner_names=node_owner_names,
-            structural_relationships=import_relationships + call_relationships,
+            structural_relationships=import_relationships + call_relationships + inheritance_relationships,
         )
         nodes.extend(skill_nodes)
         relationships.extend(skill_relationships)
@@ -394,6 +405,61 @@ class GraphBuilder:
             )
 
         return relationships, unresolved_call_count
+
+    def _resolve_inheritance(
+        self,
+        *,
+        inheritance: list,
+        symbols_by_file: defaultdict[str, list],
+        symbol_kinds: dict[str, str],
+        imported_files_by_source: dict[str, set[str]],
+        imported_symbols_by_source: dict[str, dict[str, list[str]]],
+    ) -> list[RelationshipRecord]:
+        relationships: list[RelationshipRecord] = []
+        relationship_keys: set[tuple[str, str, str, str]] = set()
+
+        for record in inheritance:
+            same_file_matches = [
+                symbol.id
+                for symbol in symbols_by_file.get(record.file_path, [])
+                if symbol.name == record.target_name and symbol.kind == record.target_kind
+            ]
+            explicit_import_matches = [
+                symbol_id
+                for symbol_id in imported_symbols_by_source.get(record.file_path, {}).get(record.target_name, [])
+                if symbol_kinds.get(symbol_id) == record.target_kind
+            ]
+            imported_file_matches = [
+                symbol.id
+                for imported_file in imported_files_by_source.get(record.file_path, set())
+                for symbol in symbols_by_file.get(imported_file, [])
+                if symbol.name == record.target_name and symbol.kind == record.target_kind
+            ]
+
+            resolution = self._pick_call_target(
+                same_file_matches=same_file_matches,
+                explicit_import_matches=explicit_import_matches,
+                imported_file_matches=imported_file_matches,
+            )
+            if resolution is None:
+                continue
+
+            target_id, reason = resolution
+            self._add_relationship(
+                relationships,
+                relationship_keys,
+                RelationshipRecord(
+                    from_kind=record.source_kind,
+                    to_kind=record.target_kind,
+                    from_id=record.source_symbol_id,
+                    to_id=target_id,
+                    type=record.relation_type,
+                    confidence=1.0,
+                    reason=reason,
+                ),
+            )
+
+        return relationships
 
     @staticmethod
     def _pick_call_target(

@@ -1,7 +1,7 @@
 # Schema and Contract Pack
 ## Local Code Graph Intelligence Core for Chatbot Integration
 
-Status: Draft v1
+Status: Implemented v1
 Related docs:
 
 - [`prd-code-graph-chatbot.md`](/mnt/c/work/india/codedb/prd-code-graph-chatbot.md)
@@ -187,17 +187,21 @@ CREATE REL TABLE CodeRelation(
   FROM Repository TO Folder,
   FROM Folder TO Folder,
   FROM Folder TO File,
+  FROM File TO File,
   FROM File TO Function,
+  FROM File TO Method,
   FROM File TO Class,
   FROM File TO Interface,
   FROM Class TO Method,
-  FROM File TO File,
   FROM Function TO Function,
   FROM Function TO Method,
+  FROM Function TO Class,
   FROM Method TO Function,
   FROM Method TO Method,
+  FROM Method TO Class,
   FROM Class TO Class,
   FROM Class TO Interface,
+  FROM Interface TO Interface,
   FROM File TO ModuleSkill,
   FROM Function TO ModuleSkill,
   FROM Method TO ModuleSkill,
@@ -461,6 +465,9 @@ Constraints:
       "file_path": "src/auth/jwt.py",
       "confidence": 1.0
     }
+  ],
+  "dependencies": [
+    "src/auth/jwt.py"
   ],
   "related_files": [
     "src/auth/service.py",

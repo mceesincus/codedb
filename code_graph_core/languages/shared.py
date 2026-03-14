@@ -31,3 +31,17 @@ def normalize_call_target(raw_text: str) -> str:
     candidate = raw_text.split("(", 1)[0]
     matches = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", candidate)
     return matches[-1] if matches else raw_text.strip()
+
+
+def extract_type_references(raw_text: str) -> list[str]:
+    cleaned = re.sub(r"<[^>]+>", "", raw_text)
+    references: list[str] = []
+    for chunk in cleaned.split(","):
+        token = chunk.strip()
+        if not token:
+            continue
+        match = re.match(r"[A-Za-z_][A-Za-z0-9_\.]*", token)
+        if match is None:
+            continue
+        references.append(match.group(0).split(".")[-1])
+    return references

@@ -103,3 +103,35 @@ def test_index_repo_does_not_count_external_module_imports_as_unresolved(tmp_pat
     result = index_repo(str(repo), index_root=str(tmp_path / "indexes"))
 
     assert result.stats["unresolved_import_count"] == 0
+
+
+def test_index_repo_persists_extends_and_implements_edges(tmp_path: Path) -> None:
+    repo = FIXTURES_ROOT / "inheritance_app"
+    result = index_repo(str(repo), index_root=str(tmp_path / "indexes"))
+    store = KuzuStore(Path(result.graph_path))
+
+    extends_result = store.connection.execute(
+        """
+        MATCH (source)-[r:CodeRelation]->(target)
+        WHERE r.type = 'EXTENDS'
+        RETURN source.name AS source_name, target.name AS target_name
+        ORDER BY source_name, target_name;
+        """
+    )
+    implements_result = store.connection.execute(
+        """
+        MATCH (source)-[r:CodeRelation]->(target)
+        WHERE r.type = 'IMPLEMENTS'
+        RETURN source.name AS source_name, target.name AS target_name
+        ORDER BY source_name, target_name;
+        """
+    )
+
+    extends_rows = [tuple(row) for row in extends_result.get_all()]
+    implements_rows = [tuple(row) for row in implements_result.get_all()]
+
+    assert ("Dog", "Animal") in extends_rows
+    assert ("SpecialReader", "FileReader") in extends_rows
+    assert ("StreamReader", "Reader") in extends_rows
+    assert ("FileReader", "StreamReader") in implements_rows
+    assert ("SpecialReader", "StreamReader") in implements_rows

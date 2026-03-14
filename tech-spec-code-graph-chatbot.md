@@ -1,7 +1,7 @@
 # Technical Specification
 ## Local Code Graph Intelligence Core for Chatbot Integration
 
-Status: Draft v1
+Status: Implemented v1
 Related PRD: [`prd-code-graph-chatbot.md`](/mnt/c/work/india/codedb/prd-code-graph-chatbot.md)
 
 ## 1. Scope
@@ -130,22 +130,17 @@ Optional adjunct stores:
 
 ## 4. Repository Layout
 
-Suggested project layout:
+Implemented project layout:
 
 ```text
 code_graph_core/
   api/
-    search.py
-    context.py
-    impact.py
-    skills.py
+    indexing.py
+    querying.py
   ingestion/
     scanner.py
     parser.py
     symbol_extractor.py
-    import_resolver.py
-    call_resolver.py
-    skill_generator.py
   graph/
     schema.py
     builder.py
@@ -157,23 +152,23 @@ code_graph_core/
     typescript.py
     python.py
     shared.py
-  tests/
-    fixtures/
-    test_indexing.py
-    test_search.py
-    test_context.py
-    test_impact.py
-    test_skills.py
-  demo/
-    chatbot.py
-    intent_router.py
-    renderers.py
+  gui.py
+  repl.py
+tests/
+  fixtures/
+  test_indexing.py
+  test_querying.py
+  test_gui.py
+  test_repl.py
+  test_storage.py
 ```
 
 Reserved for post-v1 if process tracing proves worthwhile:
 
 - `api/processes.py`
 - `ingestion/process_detector.py`
+
+The optional HTTP wrapper remains deferred. The implemented v1 demo surfaces are the in-process REPL and a minimal local GUI.
 
 ## 5. Data Model
 

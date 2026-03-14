@@ -35,11 +35,12 @@ def test_format_search_result_is_compact_and_stable() -> None:
         "file_path": "src/billing/service.py",
         "start_line": 5,
         "score": 0.93,
+        "skill": "billing",
     }
 
     assert (
         format_search_result(result)
-        == "[Method] generate_invoice (src/billing/service.py:5) score=0.93"
+        == "[Method] generate_invoice (src/billing/service.py:5) score=0.93 skill=billing"
     )
 
 
@@ -54,6 +55,7 @@ def test_format_symbol_context_includes_key_sections() -> None:
             "end_line": 7,
             "containing_class": "BillingService",
             "signature": "def generate_invoice(self, order_id: str):",
+            "skill": "billing",
         },
         "callers": [
             {
@@ -63,15 +65,19 @@ def test_format_symbol_context_includes_key_sections() -> None:
             }
         ],
         "callees": [],
+        "dependencies": ["src/billing/repository.py"],
         "related_files": ["src/billing/api.py"],
     }
 
     formatted = format_symbol_context(payload)
 
     assert "Method generate_invoice" in formatted
+    assert "skill: billing" in formatted
     assert "class: BillingService" in formatted
     assert "Callers:" in formatted
     assert "- create_invoice_handler (src/billing/api.py, confidence=1.0)" in formatted
+    assert "Dependencies:" in formatted
+    assert "- src/billing/repository.py" in formatted
     assert "Callees:" in formatted
     assert "Related files:" in formatted
 

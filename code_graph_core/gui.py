@@ -77,10 +77,11 @@ def default_source_repo_path() -> str:
 
 
 def format_search_result(result: dict[str, Any]) -> str:
+    suffix = f" skill={result['skill']}" if result.get("skill") else ""
     return (
         f"[{result['type']}] {result['name']} "
         f"({result['file_path']}:{result.get('start_line') or '-'}) "
-        f"score={result['score']:.2f}"
+        f"score={result['score']:.2f}{suffix}"
     )
 
 
@@ -94,6 +95,8 @@ def format_symbol_context(payload: dict[str, Any]) -> str:
         f"node_id: {symbol['node_id']}",
         f"file: {symbol['file_path']}:{symbol['start_line']}-{symbol['end_line']}",
     ]
+    if symbol.get("skill"):
+        lines.append(f"skill: {symbol['skill']}")
     if symbol.get("containing_class"):
         lines.append(f"class: {symbol['containing_class']}")
     if symbol.get("signature"):
@@ -116,6 +119,13 @@ def format_symbol_context(payload: dict[str, Any]) -> str:
             f"- {item['name']} ({item['file_path']}, confidence={item['confidence']:.1f})"
             for item in payload["callees"]
         )
+    else:
+        lines.append("- none")
+
+    lines.append("")
+    lines.append("Dependencies:")
+    if payload.get("dependencies"):
+        lines.extend(f"- {file_path}" for file_path in payload["dependencies"])
     else:
         lines.append("- none")
 

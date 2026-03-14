@@ -1,7 +1,7 @@
 # Execution Plan
 ## Local Code Graph Intelligence Core for Chatbot Integration
 
-Status: Draft v1
+Status: Implemented v1
 Related docs:
 
 - [`prd-code-graph-chatbot.md`](/mnt/c/work/india/codedb/prd-code-graph-chatbot.md)
@@ -35,6 +35,18 @@ Deliver in four milestones:
 2. Search and symbol context APIs
 3. Impact analysis and skills API
 4. Demo chatbot, hardening, and optional thin HTTP wrapper
+
+Current implementation status:
+
+1. Milestone 1 completed
+2. Milestone 2 completed
+3. Milestone 3 completed
+4. Milestone 4 completed for the in-process demo surfaces and hardening path
+
+Still deferred post-v1:
+
+- optional thin HTTP wrapper
+- process tracing APIs
 
 Guiding rule:
 
