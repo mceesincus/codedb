@@ -1,0 +1,173 @@
+from __future__ import annotations
+
+from hashlib import sha256
+
+from tree_sitter import Node
+
+from code_graph_core.graph.models import CallRecord, ExtractedSymbol, ExtractionResult, ImportRecord, ParsedFile
+from code_graph_core.languages.shared import child_text, compact_signature, line_span, walk
+
+
+class TypeScriptExtractor:
+    def extract(self, parsed_file: ParsedFile) -> ExtractionResult:
+        repo_id = self._repo_id(parsed_file)
+        result = ExtractionResult(parsed_file=parsed_file)
+
+        for child in parsed_file.tree.root_node.children:
+            if child.type == "import_statement":
+                result.imports.append(self._extract_import(child, parsed_file))
+                continue
+
+            node, is_exported = self._unwrap_export(child)
+            if node is None:
+                continue
+
+            if node.type == "function_declaration":
+                name_node = node.child_by_field_name("name") or node.children[1]
+                result.symbols.append(
+                    self._make_symbol(
+                        node=node,
+                        parsed_file=parsed_file,
+                        repo_id=repo_id,
+                        kind="Function",
+                        name_node=name_node,
+                        is_exported=is_exported,
+                    )
+                )
+            elif node.type == "class_declaration":
+                class_name_node = node.child_by_field_name("name") or node.children[1]
+                class_name = child_text(class_name_node, parsed_file.source_text)
+                result.symbols.append(
+                    self._make_symbol(
+                        node=node,
+                        parsed_file=parsed_file,
+                        repo_id=repo_id,
+                        kind="Class",
+                        name_node=class_name_node,
+                        is_exported=is_exported,
+                    )
+                )
+                body = node.child_by_field_name("body") or node.children[-1]
+                for member in body.children:
+                    if member.type == "method_definition":
+                        name_node = member.child_by_field_name("name")
+                        if name_node is None:
+                            continue
+                        result.symbols.append(
+                            self._make_symbol(
+                                node=member,
+                                parsed_file=parsed_file,
+                                repo_id=repo_id,
+                                kind="Method",
+                                name_node=name_node,
+                                is_exported=is_exported,
+                                owner_name=class_name,
+                            )
+                        )
+            elif node.type == "interface_declaration":
+                name_node = node.child_by_field_name("name") or node.children[1]
+                result.symbols.append(
+                    self._make_symbol(
+                        node=node,
+                        parsed_file=parsed_file,
+                        repo_id=repo_id,
+                        kind="Interface",
+                        name_node=name_node,
+                        is_exported=is_exported,
+                    )
+                )
+
+        result.calls.extend(self._extract_calls(parsed_file, result.symbols))
+        return result
+
+    def _extract_import(self, node: Node, parsed_file: ParsedFile) -> ImportRecord:
+        module_node = next((child for child in node.children if child.type == "string"), None)
+        import_clause = next((child for child in node.children if child.type == "import_clause"), None)
+        imported_names: list[str] = []
+        if import_clause is not None:
+            imported_names = [
+                child_text(named_child, parsed_file.source_text)
+                for named_child in import_clause.named_children
+            ]
+        return ImportRecord(
+            source_file=parsed_file.source_file.relative_path,
+            module_path=child_text(module_node, parsed_file.source_text).strip("\"'"),
+            imported_names=imported_names,
+        )
+
+    def _extract_calls(self, parsed_file: ParsedFile, symbols: list[ExtractedSymbol]) -> list[CallRecord]:
+        by_line = sorted(symbols, key=lambda item: item.start_line)
+        calls: list[CallRecord] = []
+        for node in walk(parsed_file.tree.root_node):
+            if node.type == "call_expression":
+                start_line = node.start_point.row + 1
+                source_symbol_id = self._symbol_for_line(by_line, start_line)
+                function_node = node.child_by_field_name("function") or (node.children[0] if node.children else None)
+                target_name = child_text(function_node, parsed_file.source_text).split(".")[-1]
+                calls.append(
+                    CallRecord(
+                        source_symbol_id=source_symbol_id,
+                        target_name=target_name,
+                        file_path=parsed_file.source_file.relative_path,
+                    )
+                )
+        return calls
+
+    def _make_symbol(
+        self,
+        node: Node,
+        parsed_file: ParsedFile,
+        repo_id: str,
+        kind: str,
+        name_node: Node,
+        is_exported: bool,
+        owner_name: str | None = None,
+    ) -> ExtractedSymbol:
+        file_path = parsed_file.source_file.relative_path
+        name = child_text(name_node, parsed_file.source_text)
+        start_line, end_line = line_span(node)
+        if kind == "Function":
+            symbol_id = f"function:{file_path}:{name}:{start_line}"
+        elif kind == "Method":
+            symbol_id = f"method:{file_path}:{owner_name}:{name}:{start_line}"
+        elif kind == "Interface":
+            symbol_id = f"interface:{file_path}:{name}:{start_line}"
+        else:
+            symbol_id = f"class:{file_path}:{name}:{start_line}"
+
+        return ExtractedSymbol(
+            id=symbol_id,
+            kind=kind,
+            repo_id=repo_id,
+            name=name,
+            label=name,
+            file_path=file_path,
+            language=parsed_file.source_file.language,
+            start_line=start_line,
+            end_line=end_line,
+            signature=compact_signature(node, parsed_file.source_text),
+            visibility="exported" if is_exported else "local",
+            is_exported=is_exported,
+            owner_name=owner_name,
+        )
+
+    @staticmethod
+    def _unwrap_export(node: Node) -> tuple[Node | None, bool]:
+        if node.type == "export_statement":
+            for child in node.children:
+                if child.type not in {"export", "default"}:
+                    return child, True
+            return None, True
+        return node, False
+
+    @staticmethod
+    def _repo_id(parsed_file: ParsedFile) -> str:
+        return f"repo:{sha256(str(parsed_file.source_file.repo_path).encode('utf-8')).hexdigest()[:16]}"
+
+    @staticmethod
+    def _symbol_for_line(symbols: list[ExtractedSymbol], line: int) -> str | None:
+        for symbol in symbols:
+            if symbol.start_line <= line <= symbol.end_line:
+                return symbol.id
+        return None
+

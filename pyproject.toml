@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "code-graph-core"
+version = "0.1.0"
+description = "Local-first code graph indexing core for chatbot integration."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "kuzu>=0.11.3",
+  "tree-sitter-language-pack>=0.13.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["code_graph_core*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+norecursedirs = ["tests/fixtures"]
