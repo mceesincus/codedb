@@ -86,8 +86,10 @@ class PythonExtractor:
         )
 
     def _extract_calls(self, parsed_file: ParsedFile, symbols: list[ExtractedSymbol]) -> list[CallRecord]:
-        symbol_id = None
-        by_line = sorted(symbols, key=lambda item: item.start_line)
+        by_line = sorted(
+            symbols,
+            key=lambda item: (item.start_line, -(item.end_line - item.start_line)),
+        )
         calls: list[CallRecord] = []
         for node in walk(parsed_file.tree.root_node):
             if node.type == "call":
@@ -145,8 +147,12 @@ class PythonExtractor:
 
     @staticmethod
     def _symbol_for_line(symbols: list[ExtractedSymbol], line: int) -> str | None:
-        for symbol in symbols:
-            if symbol.start_line <= line <= symbol.end_line:
-                return symbol.id
-        return None
-
+        candidates = [
+            symbol
+            for symbol in symbols
+            if symbol.start_line <= line <= symbol.end_line
+        ]
+        if not candidates:
+            return None
+        best_match = min(candidates, key=lambda item: (item.end_line - item.start_line, item.start_line))
+        return best_match.id

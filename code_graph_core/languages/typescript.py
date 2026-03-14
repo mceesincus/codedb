@@ -85,10 +85,8 @@ class TypeScriptExtractor:
         import_clause = next((child for child in node.children if child.type == "import_clause"), None)
         imported_names: list[str] = []
         if import_clause is not None:
-            imported_names = [
-                child_text(named_child, parsed_file.source_text)
-                for named_child in import_clause.named_children
-            ]
+            for named_child in import_clause.named_children:
+                imported_names.extend(self._normalize_import_names(child_text(named_child, parsed_file.source_text)))
         return ImportRecord(
             source_file=parsed_file.source_file.relative_path,
             module_path=child_text(module_node, parsed_file.source_text).strip("\"'"),
@@ -96,7 +94,10 @@ class TypeScriptExtractor:
         )
 
     def _extract_calls(self, parsed_file: ParsedFile, symbols: list[ExtractedSymbol]) -> list[CallRecord]:
-        by_line = sorted(symbols, key=lambda item: item.start_line)
+        by_line = sorted(
+            symbols,
+            key=lambda item: (item.start_line, -(item.end_line - item.start_line)),
+        )
         calls: list[CallRecord] = []
         for node in walk(parsed_file.tree.root_node):
             if node.type == "call_expression":
@@ -166,8 +167,29 @@ class TypeScriptExtractor:
 
     @staticmethod
     def _symbol_for_line(symbols: list[ExtractedSymbol], line: int) -> str | None:
-        for symbol in symbols:
-            if symbol.start_line <= line <= symbol.end_line:
-                return symbol.id
-        return None
+        candidates = [
+            symbol
+            for symbol in symbols
+            if symbol.start_line <= line <= symbol.end_line
+        ]
+        if not candidates:
+            return None
+        best_match = min(candidates, key=lambda item: (item.end_line - item.start_line, item.start_line))
+        return best_match.id
 
+    @staticmethod
+    def _normalize_import_names(raw_name: str) -> list[str]:
+        cleaned = raw_name.strip()
+        if cleaned.startswith("{") and cleaned.endswith("}"):
+            cleaned = cleaned[1:-1]
+        if not cleaned:
+            return []
+        names: list[str] = []
+        for chunk in cleaned.split(","):
+            token = chunk.strip()
+            if not token:
+                continue
+            if " as " in token:
+                token = token.split(" as ", 1)[1].strip()
+            names.append(token)
+        return names

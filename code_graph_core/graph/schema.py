@@ -110,10 +110,18 @@ REL_TABLE_SCHEMA = """
       FROM Repository TO Folder,
       FROM Folder TO Folder,
       FROM Folder TO File,
+      FROM File TO File,
       FROM File TO Function,
+      FROM File TO Method,
       FROM File TO Class,
       FROM File TO Interface,
       FROM Class TO Method,
+      FROM Function TO Function,
+      FROM Function TO Method,
+      FROM Function TO Class,
+      FROM Method TO Function,
+      FROM Method TO Method,
+      FROM Method TO Class,
       FROM File TO ModuleSkill,
       FROM Function TO ModuleSkill,
       FROM Method TO ModuleSkill,
@@ -126,4 +134,3 @@ REL_TABLE_SCHEMA = """
       step INT64
     );
 """
-

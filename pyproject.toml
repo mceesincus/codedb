@@ -7,11 +7,14 @@ name = "code-graph-core"
 version = "0.1.0"
 description = "Local-first code graph indexing core for chatbot integration."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 dependencies = [
   "kuzu>=0.11.3",
   "tree-sitter-language-pack>=0.13.0",
 ]
+
+[project.scripts]
+code-graph-gui = "code_graph_core.gui:main"
 
 [tool.setuptools.packages.find]
 include = ["code_graph_core*"]
