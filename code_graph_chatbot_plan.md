@@ -1,0 +1,71 @@
+Workspace: `/mnt/c/work/india/codedb`
+
+- A clean-room, local-first code graph product has been scoped for chatbot integration only.
+- Explicitly excluded from scope:
+  - MCP
+  - editor hooks
+  - browser UI
+  - hosted services
+  - GitNexus compatibility work
+- Core v1 capabilities:
+  - index a local repository into a graph
+  - persist the graph in embedded KuzuDB
+  - `get_repo_status(repo_id)`
+  - `search(repo_id, query, limit)`
+  - `get_symbol_context(repo_id, symbol, file_path?)`
+  - `get_impact(repo_id, target, direction, depth)`
+  - `list_skills(repo_id)`
+  - `get_skill(repo_id, skill_name)`
+  - a minimal local demo chatbot over the core APIs
+- `Skills as API` are a first-class requirement, not an editor-skill feature:
+  - deterministic module-context objects
+  - include key files, key symbols, entry points, flows, and related skills
+  - materialized at index time
+- Recommended v1 language scope:
+  - TypeScript / JavaScript
+  - Python
+- Recommended storage/runtime choices:
+  - embedded KuzuDB for graph storage
+  - Python core implemented as an in-process library first
+  - optional thin local HTTP wrapper only after the library APIs are stable
+- Deterministic node types planned for v1:
+  - `Repository`
+  - `Folder`
+  - `File`
+  - `Function`
+  - `Method`
+  - `Class`
+  - `Interface`
+  - `ModuleSkill`
+- Reserved for post-v1.0 process tracing:
+  - `Process`
+- Core relationship types planned for v1:
+  - `CONTAINS`
+  - `DEFINES`
+  - `IMPORTS`
+  - `CALLS`
+  - `EXTENDS`
+  - `IMPLEMENTS`
+  - `HAS_METHOD`
+  - `BELONGS_TO_SKILL`
+  - `RELATED_SKILL`
+- Reserved for post-v1.0 process tracing:
+  - `STEP_IN_PROCESS`
+- Build order locked in the technical docs:
+  - Milestone 1: core indexing and graph persistence
+  - Milestone 2: search and symbol context
+  - Milestone 3: impact analysis and skills API
+  - Milestone 4: demo chatbot, hardening, and optional HTTP wrapper
+- Fixture-first development is planned with synthetic repos for:
+  - TypeScript basics
+  - Python basics
+  - ambiguity handling
+  - multi-skill generation
+  - impact traversal
+- Canonical planning docs created in the workspace:
+  - `/mnt/c/work/india/codedb/prd-code-graph-chatbot.md`
+  - `/mnt/c/work/india/codedb/tech-spec-code-graph-chatbot.md`
+  - `/mnt/c/work/india/codedb/execution-plan-code-graph-chatbot.md`
+  - `/mnt/c/work/india/codedb/schema-and-contract-pack-code-graph-chatbot.md`
+- The next implementation step is to scaffold the project and begin Milestone 1 from the execution plan and first 10 tickets in the schema/contract pack.
+- The initial schema bootstrap should exclude `Process` and `STEP_IN_PROCESS`; those stay reserved until post-v1.
