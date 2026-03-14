@@ -7,7 +7,10 @@ from pathlib import Path
 from code_graph_core import index_repo
 from code_graph_core.gui import (
     classify_index_freshness,
+    format_impact,
     format_search_result,
+    format_skill_detail,
+    format_skills_list,
     format_symbol_context,
     load_existing_index_state,
     normalize_repo_path,
@@ -70,6 +73,73 @@ def test_format_symbol_context_includes_key_sections() -> None:
     assert "- create_invoice_handler (src/billing/api.py, confidence=1.0)" in formatted
     assert "Callees:" in formatted
     assert "Related files:" in formatted
+
+
+def test_format_skills_list_is_readable() -> None:
+    payload = {
+        "skills": [
+            {
+                "name": "billing",
+                "label": "Billing",
+                "summary": "Billing module spanning 2 files and 3 symbols.",
+                "file_count": 2,
+                "symbol_count": 3,
+            }
+        ]
+    }
+
+    formatted = format_skills_list(payload)
+
+    assert "Skills:" in formatted
+    assert "- Billing (billing): Billing module spanning 2 files and 3 symbols." in formatted
+
+
+def test_format_skill_detail_includes_sections() -> None:
+    payload = {
+        "name": "billing",
+        "label": "Billing",
+        "summary": "Billing module spanning 2 files and 3 symbols.",
+        "key_files": ["src/billing/api.ts"],
+        "key_symbols": ["createInvoiceHandler"],
+        "entry_points": ["createInvoiceHandler"],
+        "flows": ["createInvoiceHandler -> BillingService.generateInvoice"],
+        "related_skills": ["notifications"],
+        "generated_at": "2026-03-14T10:00:00Z",
+        "stats": {"file_count": 2, "symbol_count": 3, "entry_point_count": 1, "flow_count": 1},
+    }
+
+    formatted = format_skill_detail(payload)
+
+    assert "Billing (billing)" in formatted
+    assert "Key files:" in formatted
+    assert "Flows:" in formatted
+    assert "Related skills:" in formatted
+
+
+def test_format_impact_includes_summary() -> None:
+    payload = {
+        "target": {"name": "generateInvoice"},
+        "direction": "upstream",
+        "severity": "HIGH",
+        "summary": {"affected_symbol_count": 3, "affected_file_count": 3, "affected_skill_count": 2},
+        "by_depth": {
+            "1": [
+                {
+                    "name": "createInvoiceHandler",
+                    "file_path": "src/handlers/invoice.ts",
+                    "skill": "handlers",
+                }
+            ]
+        },
+        "affected_skills": ["handlers", "jobs"],
+    }
+
+    formatted = format_impact(payload)
+
+    assert "Impact: generateInvoice" in formatted
+    assert "severity: HIGH" in formatted
+    assert "By depth:" in formatted
+    assert "- createInvoiceHandler (src/handlers/invoice.ts, skill=handlers)" in formatted
 
 
 def test_load_existing_index_state_reads_persisted_index(tmp_path: Path) -> None:

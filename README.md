@@ -38,6 +38,9 @@ The current implementation covers Milestone 2:
 - `get_repo_status(repo_id)`
 - `search(repo_id, query, limit)`
 - `get_symbol_context(repo_id, symbol, file_path=None)`
+- `get_impact(repo_id, target, direction, depth=2)`
+- `list_skills(repo_id)`
+- `get_skill(repo_id, skill_name)`
 
 ## Query an Indexed Repository
 

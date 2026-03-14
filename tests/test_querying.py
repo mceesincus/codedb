@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from code_graph_core import get_repo_status, get_symbol_context, index_repo, search
+from code_graph_core import (
+    get_impact,
+    get_repo_status,
+    get_skill,
+    get_symbol_context,
+    index_repo,
+    list_skills,
+    search,
+)
 from tests.conftest import FIXTURES_ROOT
 
 
@@ -116,3 +124,48 @@ def test_get_repo_status_returns_metadata_summary(tmp_path: Path) -> None:
     assert response["index_version"] == "v1"
     assert response["languages_detected"] == ["python"]
     assert response["stats"]["file_count"] == 3
+
+
+def test_list_skills_and_get_skill_return_stable_skill_objects(tmp_path: Path) -> None:
+    repo = FIXTURES_ROOT / "multi_skill_app"
+    result = index_repo(str(repo), index_root=str(tmp_path / "indexes"))
+
+    listed = list_skills(result.repo_id, graph_path=result.graph_path)
+    detail = get_skill(result.repo_id, "billing", graph_path=result.graph_path)
+
+    assert [skill["name"] for skill in listed["skills"]] == ["auth", "billing", "notifications"]
+    assert detail["name"] == "billing"
+    assert "src/billing/api.ts" in detail["key_files"]
+    assert "createInvoiceHandler" in detail["entry_points"]
+    assert "notifications" in detail["related_skills"]
+    assert detail["stats"]["file_count"] == 2
+    assert detail["stats"]["symbol_count"] >= 2
+    assert detail["flows"]
+
+
+def test_get_impact_groups_upstream_results_by_depth(tmp_path: Path) -> None:
+    repo = FIXTURES_ROOT / "impact_app"
+    result = index_repo(str(repo), index_root=str(tmp_path / "indexes"))
+
+    response = get_impact(
+        result.repo_id,
+        "generateInvoice",
+        direction="upstream",
+        depth=2,
+        graph_path=result.graph_path,
+    )
+
+    assert response["target"]["name"] == "generateInvoice"
+    assert response["direction"] == "upstream"
+    assert sorted(node["name"] for node in response["by_depth"]["1"]) == [
+        "createInvoiceHandler",
+        "retryInvoiceGeneration",
+    ]
+    assert response["by_depth"]["2"] == [
+        {
+            "node_id": "function:src/app.ts:runInvoice:3",
+            "name": "runInvoice",
+            "file_path": "src/app.ts",
+            "skill": "app",
+        }
+    ]

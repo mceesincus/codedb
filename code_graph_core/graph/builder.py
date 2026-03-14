@@ -40,6 +40,9 @@ class GraphBuilder:
         file_to_symbols: defaultdict[str, list[tuple[str, str]]] = defaultdict(list)
         symbols_by_file: defaultdict[str, list] = defaultdict(list)
         symbol_kinds: dict[str, str] = {}
+        node_file_paths: dict[str, str] = {}
+        node_names: dict[str, str] = {}
+        node_owner_names: dict[str, str | None] = {}
         class_ids: dict[tuple[str, str], str] = {}
         class_to_methods: defaultdict[str, list[str]] = defaultdict(list)
 
@@ -87,6 +90,9 @@ class GraphBuilder:
                     "is_test": source_file.is_test,
                 },
             )
+            node_file_paths[file_id] = source_file.relative_path
+            node_names[file_id] = Path(source_file.relative_path).name
+            node_owner_names[file_id] = None
 
             for folder_path in self._folder_paths(source_file.relative_path):
                 if folder_path not in folder_ids:
@@ -134,6 +140,9 @@ class GraphBuilder:
                 file_to_symbols[source_file.relative_path].append((symbol.kind, symbol.id))
                 symbols_by_file[source_file.relative_path].append(symbol)
                 symbol_kinds[symbol.id] = symbol.kind
+                node_file_paths[symbol.id] = symbol.file_path
+                node_names[symbol.id] = symbol.name
+                node_owner_names[symbol.id] = symbol.owner_name
                 if symbol.kind == "Class":
                     class_ids[(symbol.file_path, symbol.name)] = symbol.id
                 if symbol.kind == "Method" and symbol.owner_name:
@@ -191,10 +200,24 @@ class GraphBuilder:
         )
         relationships.extend(call_relationships)
 
+        skill_nodes, skill_relationships, skill_count = self._materialize_skills(
+            repo_id=repo_id,
+            indexed_at=indexed_at,
+            file_nodes=file_nodes,
+            symbols_by_file=symbols_by_file,
+            node_file_paths=node_file_paths,
+            node_names=node_names,
+            node_owner_names=node_owner_names,
+            structural_relationships=import_relationships + call_relationships,
+        )
+        nodes.extend(skill_nodes)
+        relationships.extend(skill_relationships)
+
         stats = IndexStats(
             file_count=len(extracted_files),
             node_count=len(nodes),
             edge_count=len(relationships),
+            skill_count=skill_count,
             parse_error_count=sum(1 for item in extracted_files if item.parsed_file.diagnostics),
             unresolved_import_count=unresolved_import_count,
             unresolved_call_count=unresolved_call_count,
@@ -426,14 +449,26 @@ class GraphBuilder:
 
         normalized_candidates = []
         for candidate in candidate_paths:
-            path = PurePosixPath(candidate)
-            normalized = str(path)
+            normalized = GraphBuilder._normalize_posix_path(candidate)
             normalized_candidates.append(normalized)
 
         for candidate in normalized_candidates:
             if candidate in file_nodes:
                 return candidate
         return None
+
+    @staticmethod
+    def _normalize_posix_path(path_value: str) -> str:
+        parts: list[str] = []
+        for part in PurePosixPath(path_value).parts:
+            if part in {"", "."}:
+                continue
+            if part == "..":
+                if parts:
+                    parts.pop()
+                continue
+            parts.append(part)
+        return str(PurePosixPath(*parts)) if parts else "."
 
     @staticmethod
     def _add_relationship(
@@ -451,3 +486,218 @@ class GraphBuilder:
             return
         relationship_keys.add(key)
         relationships.append(relationship)
+
+    def _materialize_skills(
+        self,
+        *,
+        repo_id: str,
+        indexed_at: str,
+        file_nodes: dict[str, NodeRecord],
+        symbols_by_file: defaultdict[str, list],
+        node_file_paths: dict[str, str],
+        node_names: dict[str, str],
+        node_owner_names: dict[str, str | None],
+        structural_relationships: list[RelationshipRecord],
+    ) -> tuple[list[NodeRecord], list[RelationshipRecord], int]:
+        skill_files: defaultdict[str, list[str]] = defaultdict(list)
+        skill_symbols: defaultdict[str, list] = defaultdict(list)
+        node_skill_names: dict[str, str] = {}
+
+        for file_path in sorted(file_nodes):
+            skill_name = self._skill_name_for_file(file_path)
+            skill_files[skill_name].append(file_path)
+            node_skill_names[self._file_id(file_path)] = skill_name
+            for symbol in symbols_by_file.get(file_path, []):
+                skill_symbols[skill_name].append(symbol)
+                node_skill_names[symbol.id] = skill_name
+
+        skill_nodes: list[NodeRecord] = []
+        relationships: list[RelationshipRecord] = []
+        relationship_keys: set[tuple[str, str, str, str]] = set()
+        skill_ids = {skill_name: self._skill_id(repo_id, skill_name) for skill_name in skill_files}
+
+        for skill_name in sorted(skill_files):
+            files = sorted(skill_files[skill_name])
+            symbols = sorted(skill_symbols.get(skill_name, []), key=lambda item: (item.file_path, item.start_line, item.name))
+            entry_points = [
+                symbol
+                for symbol in symbols
+                if self._is_entry_point_symbol(symbol.file_path, symbol.kind, symbol.name)
+            ]
+            flow_count = sum(
+                1
+                for symbol in entry_points
+                if self._build_flow(
+                    symbol.id,
+                    structural_relationships,
+                    node_names=node_names,
+                    node_owner_names=node_owner_names,
+                    node_skill_names=node_skill_names,
+                    root_skill_name=skill_name,
+                )
+            )
+            label = self._skill_label(skill_name)
+            skill_nodes.append(
+                NodeRecord(
+                    kind="ModuleSkill",
+                    properties={
+                        "id": skill_ids[skill_name],
+                        "repo_id": repo_id,
+                        "name": skill_name,
+                        "label": label,
+                        "summary": self._skill_summary(label, len(files), len(symbols)),
+                        "generated_at": indexed_at,
+                        "file_count": len(files),
+                        "symbol_count": len(symbols),
+                        "entry_point_count": len(entry_points),
+                        "flow_count": flow_count,
+                    },
+                )
+            )
+
+            for file_path in files:
+                self._add_relationship(
+                    relationships,
+                    relationship_keys,
+                    RelationshipRecord(
+                        from_kind="File",
+                        to_kind="ModuleSkill",
+                        from_id=self._file_id(file_path),
+                        to_id=skill_ids[skill_name],
+                        type="BELONGS_TO_SKILL",
+                        reason="directory_first",
+                    ),
+                )
+
+            for symbol in symbols:
+                self._add_relationship(
+                    relationships,
+                    relationship_keys,
+                    RelationshipRecord(
+                        from_kind=symbol.kind,
+                        to_kind="ModuleSkill",
+                        from_id=symbol.id,
+                        to_id=skill_ids[skill_name],
+                        type="BELONGS_TO_SKILL",
+                        reason="directory_first",
+                    ),
+                )
+
+        for relationship in structural_relationships:
+            from_skill = node_skill_names.get(relationship.from_id)
+            to_skill = node_skill_names.get(relationship.to_id)
+            if from_skill is None or to_skill is None or from_skill == to_skill:
+                continue
+            self._add_relationship(
+                relationships,
+                relationship_keys,
+                RelationshipRecord(
+                    from_kind="ModuleSkill",
+                    to_kind="ModuleSkill",
+                    from_id=skill_ids[from_skill],
+                    to_id=skill_ids[to_skill],
+                    type="RELATED_SKILL",
+                    reason=f"cross_skill_{relationship.type.lower()}",
+                ),
+            )
+            self._add_relationship(
+                relationships,
+                relationship_keys,
+                RelationshipRecord(
+                    from_kind="ModuleSkill",
+                    to_kind="ModuleSkill",
+                    from_id=skill_ids[to_skill],
+                    to_id=skill_ids[from_skill],
+                    type="RELATED_SKILL",
+                    reason=f"cross_skill_{relationship.type.lower()}",
+                ),
+            )
+
+        return skill_nodes, relationships, len(skill_nodes)
+
+    @staticmethod
+    def _skill_name_for_file(file_path: str) -> str:
+        parts = PurePosixPath(file_path).parts
+        if len(parts) >= 3 and parts[0] == "src":
+            base = parts[1]
+        elif len(parts) == 2 and parts[0] == "src":
+            base = PurePosixPath(file_path).stem
+        elif len(parts) >= 2:
+            base = parts[-2]
+        else:
+            base = PurePosixPath(file_path).stem
+        normalized = base.replace("_", "-").replace(" ", "-").lower()
+        return normalized or "root"
+
+    @staticmethod
+    def _skill_label(skill_name: str) -> str:
+        return " ".join(part.capitalize() for part in skill_name.split("-"))
+
+    @staticmethod
+    def _skill_summary(label: str, file_count: int, symbol_count: int) -> str:
+        return f"{label} module spanning {file_count} files and {symbol_count} symbols."
+
+    @staticmethod
+    def _skill_id(repo_id: str, skill_name: str) -> str:
+        return f"skill:{repo_id}:{skill_name}"
+
+    @staticmethod
+    def _is_entry_point_symbol(file_path: str, kind: str, name: str) -> bool:
+        file_name = PurePosixPath(file_path).name
+        if kind != "Function":
+            return False
+        return (
+            file_name.startswith("api.")
+            or file_name.startswith("app.")
+            or "/handlers/" in f"/{file_path}/"
+            or name.endswith("_handler")
+            or name.endswith("Handler")
+        )
+
+    @staticmethod
+    def _build_flow(
+        start_id: str,
+        structural_relationships: list[RelationshipRecord],
+        *,
+        node_names: dict[str, str],
+        node_owner_names: dict[str, str | None],
+        node_skill_names: dict[str, str],
+        root_skill_name: str,
+    ) -> str | None:
+        outgoing_by_node: defaultdict[str, list[str]] = defaultdict(list)
+        for relationship in structural_relationships:
+            if relationship.type != "CALLS":
+                continue
+            outgoing_by_node[relationship.from_id].append(relationship.to_id)
+
+        steps = [GraphBuilder._flow_label(start_id, node_names, node_owner_names)]
+        current_id = start_id
+        visited = {start_id}
+        for _ in range(4):
+            candidates = sorted(
+                {
+                    node_id
+                    for node_id in outgoing_by_node.get(current_id, [])
+                    if node_skill_names.get(node_id) in {root_skill_name, node_skill_names.get(current_id)}
+                }
+            )
+            if not candidates:
+                break
+            next_id = candidates[0]
+            if next_id in visited:
+                break
+            visited.add(next_id)
+            steps.append(GraphBuilder._flow_label(next_id, node_names, node_owner_names))
+            current_id = next_id
+
+        if len(steps) <= 1:
+            return None
+        return " -> ".join(steps)
+
+    @staticmethod
+    def _flow_label(node_id: str, node_names: dict[str, str], node_owner_names: dict[str, str | None]) -> str:
+        owner_name = node_owner_names.get(node_id)
+        name = node_names.get(node_id, node_id)
+        if owner_name:
+            return f"{owner_name}.{name}"
+        return name

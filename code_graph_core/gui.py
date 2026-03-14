@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from code_graph_core import get_repo_status
+from code_graph_core import get_impact, get_repo_status, get_skill, list_skills
 from code_graph_core.storage.index_paths import graph_path as indexed_graph_path
 from code_graph_core.storage.index_paths import metadata_path as indexed_metadata_path
 from code_graph_core.storage.index_paths import repo_id_for_path
@@ -129,6 +129,76 @@ def format_symbol_context(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def format_skills_list(payload: dict[str, Any]) -> str:
+    if "error" in payload:
+        return json.dumps(payload, indent=2, sort_keys=True)
+    skills = payload.get("skills", [])
+    if not skills:
+        return "No skills."
+    lines = ["Skills:"]
+    for skill in skills:
+        lines.append(
+            f"- {skill['label']} ({skill['name']}): {skill['summary']} "
+            f"[files={skill['file_count']}, symbols={skill['symbol_count']}]"
+        )
+    return "\n".join(lines)
+
+
+def format_skill_detail(payload: dict[str, Any]) -> str:
+    if "error" in payload:
+        return json.dumps(payload, indent=2, sort_keys=True)
+    lines = [
+        f"{payload['label']} ({payload['name']})",
+        f"generated_at: {payload['generated_at']}",
+        f"summary: {payload['summary']}",
+        "",
+        "Key files:",
+    ]
+    lines.extend(f"- {item}" for item in payload["key_files"] or ["none"])
+    lines.append("")
+    lines.append("Key symbols:")
+    lines.extend(f"- {item}" for item in payload["key_symbols"] or ["none"])
+    lines.append("")
+    lines.append("Entry points:")
+    lines.extend(f"- {item}" for item in payload["entry_points"] or ["none"])
+    lines.append("")
+    lines.append("Flows:")
+    lines.extend(f"- {item}" for item in payload["flows"] or ["none"])
+    lines.append("")
+    lines.append("Related skills:")
+    lines.extend(f"- {item}" for item in payload["related_skills"] or ["none"])
+    lines.append("")
+    lines.append(json.dumps(payload["stats"], indent=2, sort_keys=True))
+    return "\n".join(lines)
+
+
+def format_impact(payload: dict[str, Any]) -> str:
+    if "error" in payload:
+        return json.dumps(payload, indent=2, sort_keys=True)
+    lines = [
+        f"Impact: {payload['target']['name']}",
+        f"direction: {payload['direction']}",
+        f"severity: {payload['severity']}",
+        "",
+        json.dumps(payload["summary"], indent=2, sort_keys=True),
+        "",
+        "By depth:",
+    ]
+    for depth, items in payload["by_depth"].items():
+        lines.append(f"{depth}:")
+        if items:
+            lines.extend(
+                f"- {item['name']} ({item['file_path']}, skill={item['skill'] or 'none'})"
+                for item in items
+            )
+        else:
+            lines.append("- none")
+    lines.append("")
+    lines.append("Affected skills:")
+    lines.extend(f"- {item}" for item in payload["affected_skills"] or ["none"])
+    return "\n".join(lines)
+
+
 def classify_index_freshness(repo_path: Path, metadata: dict[str, object]) -> str:
     stored_last_modified_at = metadata.get("source_last_modified_at")
     if not stored_last_modified_at:
@@ -188,6 +258,10 @@ class CodeGraphGuiApp:
         self.search_query_var = tk.StringVar()
         self.symbol_var = tk.StringVar()
         self.file_path_var = tk.StringVar()
+        self.skill_var = tk.StringVar()
+        self.impact_target_var = tk.StringVar()
+        self.impact_direction_var = tk.StringVar(value="upstream")
+        self.impact_depth_var = tk.StringVar(value="2")
         self.status_var = tk.StringVar(value="Ready.")
 
         self.current_repo: IndexedRepoState | None = None
@@ -219,6 +293,7 @@ class CodeGraphGuiApp:
         controls.grid(row=1, column=0, sticky="ew")
         controls.columnconfigure(1, weight=1)
         controls.columnconfigure(4, weight=1)
+        controls.columnconfigure(7, weight=1)
 
         ttk.Label(controls, text="Search").grid(row=0, column=0, sticky="w", padx=(0, 8))
         search_entry = ttk.Entry(controls, textvariable=self.search_query_var)
@@ -238,6 +313,38 @@ class CodeGraphGuiApp:
         file_path_entry.bind("<Return>", lambda _event: self._on_load_context())
         self.context_button = ttk.Button(controls, text="Load Context", command=self._on_load_context)
         self.context_button.grid(row=1, column=5, padx=(8, 0), pady=(8, 0))
+
+        ttk.Label(controls, text="Skill").grid(row=2, column=0, sticky="w", padx=(0, 8), pady=(8, 0))
+        skill_entry = ttk.Entry(controls, textvariable=self.skill_var)
+        skill_entry.grid(row=2, column=1, sticky="ew", pady=(8, 0))
+        skill_entry.bind("<Return>", lambda _event: self._on_get_skill())
+        self.skills_button = ttk.Button(controls, text="List Skills", command=self._on_list_skills)
+        self.skills_button.grid(row=2, column=2, padx=(8, 8), pady=(8, 0))
+        self.skill_detail_button = ttk.Button(controls, text="Get Skill", command=self._on_get_skill)
+        self.skill_detail_button.grid(row=2, column=3, padx=(0, 16), pady=(8, 0))
+
+        ttk.Label(controls, text="Impact").grid(row=2, column=4, sticky="w", padx=(0, 8), pady=(8, 0))
+        impact_entry = ttk.Entry(controls, textvariable=self.impact_target_var)
+        impact_entry.grid(row=2, column=5, sticky="ew", pady=(8, 0))
+        impact_entry.bind("<Return>", lambda _event: self._on_get_impact())
+        direction_box = ttk.Combobox(
+            controls,
+            textvariable=self.impact_direction_var,
+            values=("upstream", "downstream"),
+            state="readonly",
+            width=12,
+        )
+        direction_box.grid(row=2, column=6, padx=(8, 8), pady=(8, 0))
+        depth_box = ttk.Combobox(
+            controls,
+            textvariable=self.impact_depth_var,
+            values=("1", "2", "3", "4"),
+            state="readonly",
+            width=5,
+        )
+        depth_box.grid(row=2, column=7, padx=(0, 8), pady=(8, 0), sticky="w")
+        self.impact_button = ttk.Button(controls, text="Impact", command=self._on_get_impact)
+        self.impact_button.grid(row=2, column=8, pady=(8, 0))
 
         body = ttk.Panedwindow(self.root, orient="horizontal")
         body.grid(row=2, column=0, sticky="nsew", padx=12, pady=(0, 12))
@@ -300,6 +407,29 @@ class CodeGraphGuiApp:
 
         file_path = self.file_path_var.get().strip() or None
         self._ensure_indexed_then(lambda repo: self._perform_load_context(repo, symbol, file_path))
+
+    def _on_list_skills(self) -> None:
+        self._ensure_indexed_then(self._perform_list_skills)
+
+    def _on_get_skill(self) -> None:
+        skill_name = self.skill_var.get().strip()
+        if not skill_name:
+            self._show_error("Enter a skill name.")
+            return
+        self._ensure_indexed_then(lambda repo: self._perform_get_skill(repo, skill_name))
+
+    def _on_get_impact(self) -> None:
+        target = self.impact_target_var.get().strip()
+        if not target:
+            self._show_error("Enter an impact target.")
+            return
+        try:
+            depth = int(self.impact_depth_var.get().strip() or "2")
+        except ValueError:
+            self._show_error("Impact depth must be a number.")
+            return
+        direction = self.impact_direction_var.get().strip() or "upstream"
+        self._ensure_indexed_then(lambda repo: self._perform_get_impact(repo, target, direction, depth))
 
     def _on_select_result(self, _event: Any) -> None:
         selection = self.results_list.curselection()
@@ -385,6 +515,26 @@ class CodeGraphGuiApp:
             self.status_var.set(f"Loaded context for {response['symbol']['name']}.")
         self._render_text(format_symbol_context(response))
 
+    def _handle_skills_list(self, response: dict[str, Any]) -> None:
+        self.status_var.set(f"Loaded {len(response.get('skills', []))} skills.")
+        self._render_text(format_skills_list(response))
+
+    def _handle_skill_detail(self, response: dict[str, Any]) -> None:
+        if "error" in response:
+            self.status_var.set(response["error"]["message"])
+        else:
+            self.status_var.set(f"Loaded skill {response['name']}.")
+        self._render_text(format_skill_detail(response))
+
+    def _handle_impact(self, response: dict[str, Any]) -> None:
+        if "error" in response:
+            self.status_var.set(response["error"]["message"])
+        else:
+            self.status_var.set(
+                f"Impact loaded for {response['target']['name']} ({response['severity']})."
+            )
+        self._render_text(format_impact(response))
+
     def _render_text(self, content: str) -> None:
         self.context_text.configure(state="normal")
         self.context_text.delete("1.0", tk.END)
@@ -400,6 +550,9 @@ class CodeGraphGuiApp:
         self.index_button.configure(state=state)
         self.search_button.configure(state=state)
         self.context_button.configure(state=state)
+        self.skills_button.configure(state=state)
+        self.skill_detail_button.configure(state=state)
+        self.impact_button.configure(state=state)
 
     def _show_error(self, message: str) -> None:
         self.status_var.set(message)
@@ -520,6 +673,33 @@ class CodeGraphGuiApp:
             success=self._handle_symbol_context,
         )
 
+    def _perform_list_skills(self, repo: IndexedRepoState) -> None:
+        self._run_background(
+            started_message="Loading skills ...",
+            job=lambda: self._list_skills(repo.repo_id, repo.graph_path),
+            success=self._handle_skills_list,
+        )
+
+    def _perform_get_skill(self, repo: IndexedRepoState, skill_name: str) -> None:
+        self._run_background(
+            started_message=f"Loading skill '{skill_name}' ...",
+            job=lambda: self._get_skill(repo.repo_id, skill_name, repo.graph_path),
+            success=self._handle_skill_detail,
+        )
+
+    def _perform_get_impact(
+        self,
+        repo: IndexedRepoState,
+        target: str,
+        direction: str,
+        depth: int,
+    ) -> None:
+        self._run_background(
+            started_message=f"Loading impact for '{target}' ...",
+            job=lambda: self._get_impact(repo.repo_id, target, direction, depth, repo.graph_path),
+            success=self._handle_impact,
+        )
+
     def _handle_existing_index_result(self, repo: IndexedRepoState) -> None:
         self.current_repo = repo
         self._refresh_repo_status(repo)
@@ -552,6 +732,39 @@ class CodeGraphGuiApp:
                 "`python -m pip install -e .` in `C:\\work\\india\\codedb` first."
             ) from exc
         return search(repo_id, query, graph_path=graph_path)
+
+    @staticmethod
+    def _list_skills(repo_id: str, graph_path: str):
+        try:
+            from code_graph_core.api.querying import list_skills
+        except ModuleNotFoundError as exc:  # pragma: no cover - depends on runtime environment
+            raise RuntimeError(
+                "Missing runtime dependency for skills. Run "
+                "`python -m pip install -e .` in `C:\\work\\india\\codedb` first."
+            ) from exc
+        return list_skills(repo_id, graph_path=graph_path)
+
+    @staticmethod
+    def _get_skill(repo_id: str, skill_name: str, graph_path: str):
+        try:
+            from code_graph_core.api.querying import get_skill
+        except ModuleNotFoundError as exc:  # pragma: no cover - depends on runtime environment
+            raise RuntimeError(
+                "Missing runtime dependency for skills. Run "
+                "`python -m pip install -e .` in `C:\\work\\india\\codedb` first."
+            ) from exc
+        return get_skill(repo_id, skill_name, graph_path=graph_path)
+
+    @staticmethod
+    def _get_impact(repo_id: str, target: str, direction: str, depth: int, graph_path: str):
+        try:
+            from code_graph_core.api.querying import get_impact
+        except ModuleNotFoundError as exc:  # pragma: no cover - depends on runtime environment
+            raise RuntimeError(
+                "Missing runtime dependency for impact analysis. Run "
+                "`python -m pip install -e .` in `C:\\work\\india\\codedb` first."
+            ) from exc
+        return get_impact(repo_id, target, direction, depth, graph_path=graph_path)
 
     @staticmethod
     def _get_symbol_context(repo_id: str, symbol: str, file_path: str | None, graph_path: str):
