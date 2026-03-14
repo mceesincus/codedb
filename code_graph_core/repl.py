@@ -58,6 +58,8 @@ def format_repl_help() -> str:
             "  index [--force]",
             "  status",
             "  search <query>",
+            "  where <symbol>",
+            "  overview <symbol>",
             "  context <symbol> [file_path]",
             "  skills",
             "  skill <name>",
@@ -106,6 +108,68 @@ def format_repo_summary(repo: IndexedRepoState) -> str:
     )
 
 
+def format_definition_payload(payload: dict[str, object]) -> str:
+    if "error" in payload:
+        return format_symbol_context(payload)
+
+    symbol = payload["symbol"]
+    lines = [
+        f"{symbol['type']} {symbol['name']}",
+        f"Defined at: {symbol['file_path']}:{symbol['start_line']}-{symbol['end_line']}",
+    ]
+    if symbol.get("containing_class"):
+        lines.append(f"Class: {symbol['containing_class']}")
+    if symbol.get("signature"):
+        lines.append(f"Signature: {symbol['signature']}")
+    return "\n".join(lines)
+
+
+def format_overview_payload(
+    context_payload: dict[str, object],
+    impact_payload: dict[str, object] | None,
+) -> str:
+    if "error" in context_payload:
+        return format_symbol_context(context_payload)
+
+    symbol = context_payload["symbol"]
+    lines = [
+        f"{symbol['type']} {symbol['name']}",
+        f"Defined at: {symbol['file_path']}:{symbol['start_line']}-{symbol['end_line']}",
+    ]
+    if symbol.get("containing_class"):
+        lines.append(f"Class: {symbol['containing_class']}")
+    if symbol.get("signature"):
+        lines.append(f"Signature: {symbol['signature']}")
+
+    caller_names = [item["name"] for item in context_payload.get("callers", [])]
+    callee_names = [item["name"] for item in context_payload.get("callees", [])]
+    related_files = list(context_payload.get("related_files", []))
+
+    lines.append(f"Direct callers: {len(caller_names)}")
+    if caller_names:
+        lines.append(f"Caller names: {', '.join(caller_names[:5])}")
+    lines.append(f"Direct callees: {len(callee_names)}")
+    if callee_names:
+        lines.append(f"Callee names: {', '.join(callee_names[:5])}")
+    if related_files:
+        lines.append(f"Related files: {', '.join(related_files[:5])}")
+
+    if impact_payload is not None and "error" not in impact_payload:
+        summary = impact_payload["summary"]
+        lines.append(
+            "Upstream impact: "
+            f"{summary['affected_symbol_count']} symbols, "
+            f"{summary['affected_file_count']} files, "
+            f"{summary['affected_skill_count']} skills "
+            f"(severity={impact_payload['severity']})"
+        )
+        affected_skills = list(impact_payload.get("affected_skills", []))
+        if affected_skills:
+            lines.append(f"Affected skills: {', '.join(affected_skills[:5])}")
+
+    return "\n".join(lines)
+
+
 def format_ambiguity_prompt(pending: PendingSelection) -> str:
     lines = ["Multiple symbols matched. Choose one:"]
     for index, candidate in enumerate(pending.candidates, start=1):
@@ -146,6 +210,10 @@ def infer_repl_command(
             if last_symbol.file_path:
                 args.append(last_symbol.file_path)
             return "context", args
+        if lowered in {"where is it defined", "where is that defined", "where defined", "where is it"}:
+            return "where", [last_symbol.node_id]
+        if lowered in {"what is it", "what is that", "overview", "show overview", "tell me about it", "tell me about that"}:
+            return "overview", [last_symbol.node_id]
         if lowered in {"show callers", "callers", "what calls it", "who calls it", "upstream", "upstream too", "show upstream"}:
             return "impact", [last_symbol.node_id, "upstream", "1"]
         if lowered in {"show callees", "callees", "what does it call", "what does that call", "downstream", "downstream too", "show downstream"}:
@@ -174,6 +242,17 @@ def infer_repl_command(
     if repo_path is not None:
         return "repo", [repo_path]
 
+    where_target = _extract_symbol_reference(
+        normalized,
+        (
+            r"(?i)where is (?P<value>.+?) defined",
+            r"(?i)where is (?P<value>.+)",
+            r"(?i)find definition(?: for| of)? (?P<value>.+)",
+        ),
+    )
+    if where_target is not None:
+        return "where", [where_target]
+
     context_match = re.match(
         r"(?i)(?:show|get|load|explain|describe)(?: me)? context for (?P<symbol>.+?)(?: in (?P<file>.+))?$",
         normalized.strip(" ?!."),
@@ -185,6 +264,18 @@ def infer_repl_command(
         if file_path:
             args.append(file_path)
         return "context", args
+
+    overview_target = _extract_symbol_reference(
+        normalized,
+        (
+            r"(?i)what is (?P<value>.+)",
+            r"(?i)tell me about (?P<value>.+)",
+            r"(?i)describe (?P<value>.+)",
+            r"(?i)show overview(?: for| of)? (?P<value>.+)",
+        ),
+    )
+    if overview_target is not None:
+        return "overview", [overview_target]
 
     callers_target = _extract_symbol_reference(
         normalized,
@@ -325,6 +416,8 @@ class CodeGraphRepl:
             "index": self._handle_index,
             "status": self._handle_status,
             "search": self._handle_search,
+            "where": self._handle_where,
+            "overview": self._handle_overview,
             "context": self._handle_context,
             "skills": self._handle_skills,
             "skill": self._handle_skill,
@@ -386,6 +479,18 @@ class CodeGraphRepl:
         if not args:
             return "Error: search requires a query."
         return self._run_search(" ".join(args))
+
+    def _handle_where(self, args: list[str], _raw_line: str) -> str:
+        if not args:
+            return "Error: where requires a symbol."
+        repo = self._ensure_indexed()
+        return self._run_where(repo, args[0])
+
+    def _handle_overview(self, args: list[str], _raw_line: str) -> str:
+        if not args:
+            return "Error: overview requires a symbol."
+        repo = self._ensure_indexed()
+        return self._run_overview(repo, args[0])
 
     def _handle_context(self, args: list[str], _raw_line: str) -> str:
         if not args:
@@ -514,6 +619,74 @@ class CodeGraphRepl:
             )
         return format_search_payload(payload)
 
+    def _run_where(self, repo: IndexedRepoState, symbol: str) -> str:
+        payload = get_symbol_context(repo.repo_id, symbol, graph_path=repo.graph_path)
+        if "error" in payload:
+            error = payload["error"]
+            if error["code"] == "AMBIGUOUS_SYMBOL":
+                self.pending_selection = PendingSelection(
+                    action="where",
+                    target=symbol,
+                    candidates=[
+                        {
+                            "node_id": str(candidate["node_id"]),
+                            "type": str(candidate["type"]),
+                            "file_path": str(candidate["file_path"]),
+                        }
+                        for candidate in error["details"]["candidates"]
+                    ],
+                )
+                return format_ambiguity_prompt(self.pending_selection)
+            self.pending_selection = None
+            return self._run_search(symbol)
+
+        self.pending_selection = None
+        self._remember_symbol(
+            name=str(payload["symbol"]["name"]),
+            node_id=str(payload["symbol"]["node_id"]),
+            file_path=str(payload["symbol"]["file_path"]),
+            symbol_type=str(payload["symbol"]["type"]),
+        )
+        return format_definition_payload(payload)
+
+    def _run_overview(self, repo: IndexedRepoState, symbol: str) -> str:
+        context_payload = get_symbol_context(repo.repo_id, symbol, graph_path=repo.graph_path)
+        if "error" in context_payload:
+            error = context_payload["error"]
+            if error["code"] == "AMBIGUOUS_SYMBOL":
+                self.pending_selection = PendingSelection(
+                    action="overview",
+                    target=symbol,
+                    candidates=[
+                        {
+                            "node_id": str(candidate["node_id"]),
+                            "type": str(candidate["type"]),
+                            "file_path": str(candidate["file_path"]),
+                        }
+                        for candidate in error["details"]["candidates"]
+                    ],
+                )
+                return format_ambiguity_prompt(self.pending_selection)
+            self.pending_selection = None
+            return self._run_search(symbol)
+
+        self.pending_selection = None
+        symbol_payload = context_payload["symbol"]
+        self._remember_symbol(
+            name=str(symbol_payload["name"]),
+            node_id=str(symbol_payload["node_id"]),
+            file_path=str(symbol_payload["file_path"]),
+            symbol_type=str(symbol_payload["type"]),
+        )
+        impact_payload = get_impact(
+            repo.repo_id,
+            str(symbol_payload["node_id"]),
+            "upstream",
+            2,
+            graph_path=repo.graph_path,
+        )
+        return format_overview_payload(context_payload, impact_payload)
+
     def _ensure_indexed(self, *, force: bool = False) -> IndexedRepoState:
         if not self.repo_path.exists():
             raise ValueError(f"Repository path does not exist: {self.repo_path}")
@@ -603,6 +776,12 @@ class CodeGraphRepl:
                     symbol_type=str(payload["symbol"]["type"]),
                 )
             return format_symbol_context(payload)
+
+        if pending.action == "where":
+            return self._run_where(repo, str(candidate["node_id"]))
+
+        if pending.action == "overview":
+            return self._run_overview(repo, str(candidate["node_id"]))
 
         payload = get_impact(
             repo.repo_id,
