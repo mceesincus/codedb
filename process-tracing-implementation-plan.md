@@ -1,7 +1,7 @@
 # Process Tracing Implementation Plan
 ## Local Code Graph Intelligence Core for Chatbot Integration
 
-Status: Proposed post-v1 implementation plan
+Status: Proposed engine-parity implementation plan
 
 Related docs:
 
@@ -15,6 +15,13 @@ Related docs:
 This document defines a concrete implementation plan for the deferred `process tracing` capability.
 
 In this repository, `process tracing` means a bounded, heuristic flow-tracing layer built on top of the existing code graph. It is not full semantic program execution and it does not attempt to model arbitrary runtime behavior.
+
+This plan is intentionally scoped to engine-level parity only:
+
+- implement the process graph and Python query API
+- do not implement MCP resources
+- do not implement an HTTP wrapper
+- do not implement a browser or editor surface as part of this plan
 
 ## 2. Product Boundary
 
@@ -32,6 +39,17 @@ The feature should not claim to:
 - reconstruct every possible runtime path
 
 The implementation target is a deterministic, testable approximation with explicit bounds.
+
+The parity target is specifically:
+
+- materialized process nodes and ordered process steps in the local graph
+- a Python API surface for querying those processes
+
+It is not:
+
+- GitNexus product-surface parity
+- MCP resource-system parity
+- UI parity
 
 ## 3. Target API
 
@@ -109,6 +127,20 @@ To keep the API usable and prompt-friendly:
 - max `8` steps per process
 - max traversal depth `6`
 - max branching factor `3`
+
+### 3.4 Exposure Boundary
+
+The required exposure layer for this plan is:
+
+- Python in-process API only
+
+Optional later consumers may include:
+
+- REPL commands
+- HTTP wrapper
+- MCP/resource adapters
+
+Those are explicitly out of scope for parity in this plan.
 
 ## 4. Implementation Phases
 
@@ -340,11 +372,11 @@ Update [querying.py](/mnt/c/work/india/codedb/code_graph_core/api/querying.py):
 - fixture expectations pass deterministically
 - process outputs remain bounded
 
-## Phase 9: REPL Support
+## Phase 9: Optional Thin Consumer Support
 
 ### Goals
 
-- make process tracing demoable in the existing chatbot surface
+- optionally make process tracing demoable in the existing REPL
 
 ### Work
 
@@ -360,8 +392,8 @@ Update [repl.py](/mnt/c/work/india/codedb/code_graph_core/repl.py):
 
 ### Acceptance Criteria
 
-- REPL can display top flows on fixture repos
-- chat-style prompts route correctly
+- if implemented, the REPL can display top flows on fixture repos
+- this phase is not required for engine-level parity
 
 ## Phase 10: Real-Repo Hardening
 
@@ -398,7 +430,6 @@ Core code:
 - [schema.py](/mnt/c/work/india/codedb/code_graph_core/graph/schema.py)
 - [builder.py](/mnt/c/work/india/codedb/code_graph_core/graph/builder.py)
 - [querying.py](/mnt/c/work/india/codedb/code_graph_core/api/querying.py)
-- [repl.py](/mnt/c/work/india/codedb/code_graph_core/repl.py)
 
 New modules:
 
@@ -426,9 +457,9 @@ Docs:
 6. index-time materialization
 7. query API
 8. tests
-9. REPL support
-10. real-repo hardening
-11. doc updates
+9. real-repo hardening
+10. doc updates
+11. optional thin consumer support
 
 ## 7. Key Constraint
 
@@ -441,5 +472,7 @@ The correct implementation target is:
 - prompt-friendly
 - explicit about heuristics
 - useful for code exploration
+
+The required parity target ends at the local graph plus Python API boundary.
 
 That is the only realistic way to make `process tracing` shippable in this codebase.
