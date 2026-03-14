@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import re
 import shlex
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -27,6 +28,25 @@ from code_graph_core.gui import (
     load_existing_index_state,
     normalize_repo_path,
 )
+
+SYMBOL_TYPES = {"Function", "Method", "Class", "Interface"}
+
+
+@dataclass(slots=True)
+class SymbolReference:
+    name: str
+    node_id: str
+    file_path: str | None = None
+    symbol_type: str | None = None
+
+
+@dataclass(slots=True)
+class PendingSelection:
+    action: str
+    target: str
+    candidates: list[dict[str, str]]
+    direction: str | None = None
+    depth: int | None = None
 
 
 def format_repl_help() -> str:
@@ -86,7 +106,20 @@ def format_repo_summary(repo: IndexedRepoState) -> str:
     )
 
 
-def infer_repl_command(raw_line: str) -> tuple[str, list[str]] | None:
+def format_ambiguity_prompt(pending: PendingSelection) -> str:
+    lines = ["Multiple symbols matched. Choose one:"]
+    for index, candidate in enumerate(pending.candidates, start=1):
+        lines.append(
+            f"{index}. {candidate['type']} in {candidate['file_path']} ({candidate['node_id']})"
+        )
+    lines.append("Reply with a number or `cancel`.")
+    return "\n".join(lines)
+
+
+def infer_repl_command(
+    raw_line: str,
+    last_symbol: SymbolReference | None = None,
+) -> tuple[str, list[str]] | None:
     normalized = raw_line.strip()
     if not normalized:
         return None
@@ -105,6 +138,18 @@ def infer_repl_command(raw_line: str) -> tuple[str, list[str]] | None:
         return "index", []
     if lowered in {"quit", "exit", "bye"}:
         return "exit", []
+    if lowered in {"cancel", "never mind", "nevermind"}:
+        return "cancel", []
+    if last_symbol is not None:
+        if lowered in {"show context", "context", "show symbol context", "show context for it", "show context for that"}:
+            args = [last_symbol.node_id]
+            if last_symbol.file_path:
+                args.append(last_symbol.file_path)
+            return "context", args
+        if lowered in {"show callers", "callers", "what calls it", "who calls it", "upstream", "upstream too", "show upstream"}:
+            return "impact", [last_symbol.node_id, "upstream", "1"]
+        if lowered in {"show callees", "callees", "what does it call", "what does that call", "downstream", "downstream too", "show downstream"}:
+            return "impact", [last_symbol.node_id, "downstream", "1"]
 
     skill_name = _match_named_tail(
         normalized,
@@ -225,6 +270,8 @@ class CodeGraphRepl:
         self.output = output or print
         self.show_progress = show_progress
         self.current_repo: IndexedRepoState | None = None
+        self.last_symbol: SymbolReference | None = None
+        self.pending_selection: PendingSelection | None = None
         self.should_exit = False
         self._progress_buckets: dict[str, int] = {}
 
@@ -257,6 +304,10 @@ class CodeGraphRepl:
         if not raw_line:
             return ""
 
+        pending_response = self._try_resolve_pending_selection(raw_line)
+        if pending_response is not None:
+            return pending_response
+
         try:
             parts = shlex.split(raw_line)
         except ValueError as exc:
@@ -278,13 +329,14 @@ class CodeGraphRepl:
             "skills": self._handle_skills,
             "skill": self._handle_skill,
             "impact": self._handle_impact,
+            "cancel": self._handle_cancel,
             "exit": self._handle_exit,
             "quit": self._handle_exit,
         }
 
         handler = handlers.get(command)
         if handler is None:
-            inferred = infer_repl_command(raw_line)
+            inferred = infer_repl_command(raw_line, last_symbol=self.last_symbol)
             if inferred is not None:
                 inferred_command, inferred_args = inferred
                 inferred_handler = handlers[inferred_command]
@@ -307,6 +359,8 @@ class CodeGraphRepl:
 
         self.repo_path = normalize_repo_path(" ".join(args))
         self.current_repo = None
+        self.last_symbol = None
+        self.pending_selection = None
         if self.repo_path.exists():
             self.current_repo = load_existing_index_state(self.repo_path, self.index_root)
 
@@ -346,6 +400,32 @@ class CodeGraphRepl:
             file_path=file_path,
             graph_path=repo.graph_path,
         )
+        if "error" in payload:
+            error = payload["error"]
+            if error["code"] == "AMBIGUOUS_SYMBOL":
+                self.pending_selection = PendingSelection(
+                    action="context",
+                    target=symbol,
+                    candidates=[
+                        {
+                            "node_id": str(candidate["node_id"]),
+                            "type": str(candidate["type"]),
+                            "file_path": str(candidate["file_path"]),
+                        }
+                        for candidate in error["details"]["candidates"]
+                    ],
+                )
+                return format_ambiguity_prompt(self.pending_selection)
+            self.pending_selection = None
+            return format_symbol_context(payload)
+
+        self.pending_selection = None
+        self._remember_symbol(
+            name=str(payload["symbol"]["name"]),
+            node_id=str(payload["symbol"]["node_id"]),
+            file_path=str(payload["symbol"]["file_path"]),
+            symbol_type=str(payload["symbol"]["type"]),
+        )
         return format_symbol_context(payload)
 
     def _handle_skills(self, _args: list[str], _raw_line: str) -> str:
@@ -379,7 +459,41 @@ class CodeGraphRepl:
             depth,
             graph_path=repo.graph_path,
         )
+        if "error" in payload:
+            error = payload["error"]
+            if error["code"] == "AMBIGUOUS_SYMBOL":
+                self.pending_selection = PendingSelection(
+                    action="impact",
+                    target=target,
+                    candidates=[
+                        {
+                            "node_id": str(candidate["node_id"]),
+                            "type": str(candidate["type"]),
+                            "file_path": str(candidate["file_path"]),
+                        }
+                        for candidate in error["details"]["candidates"]
+                    ],
+                    direction=direction,
+                    depth=depth,
+                )
+                return format_ambiguity_prompt(self.pending_selection)
+            self.pending_selection = None
+            return format_impact(payload)
+
+        self.pending_selection = None
+        self._remember_symbol(
+            name=str(payload["target"]["name"]),
+            node_id=str(payload["target"]["node_id"]),
+            file_path=str(payload["target"].get("file_path") or ""),
+            symbol_type=None,
+        )
         return format_impact(payload)
+
+    def _handle_cancel(self, _args: list[str], _raw_line: str) -> str:
+        if self.pending_selection is None:
+            return "Nothing to cancel."
+        self.pending_selection = None
+        return "Cancelled selection."
 
     def _handle_exit(self, _args: list[str], _raw_line: str) -> str:
         self.should_exit = True
@@ -388,6 +502,16 @@ class CodeGraphRepl:
     def _run_search(self, query: str) -> str:
         repo = self._ensure_indexed()
         payload = search(repo.repo_id, query, graph_path=repo.graph_path)
+        self.pending_selection = None
+        results = list(payload.get("results", []))
+        if len(results) == 1 and results[0].get("type") in SYMBOL_TYPES:
+            result = results[0]
+            self._remember_symbol(
+                name=str(result["name"]),
+                node_id=str(result["node_id"]),
+                file_path=str(result["file_path"]),
+                symbol_type=str(result["type"]),
+            )
         return format_search_payload(payload)
 
     def _ensure_indexed(self, *, force: bool = False) -> IndexedRepoState:
@@ -414,6 +538,7 @@ class CodeGraphRepl:
         self.current_repo = load_existing_index_state(self.repo_path, self.index_root)
         if self.current_repo is None:
             raise RuntimeError(f"Indexed repo {result.repo_id} but failed to reload metadata.")
+        self.pending_selection = None
 
         payload = get_repo_status(self.current_repo.repo_id, metadata_path=self.current_repo.metadata_path)
         self.current_repo.index_version = str(payload.get("index_version", self.current_repo.index_version))
@@ -441,6 +566,74 @@ class CodeGraphRepl:
 
         if should_emit:
             self.output(format_index_progress(progress))
+
+    def _try_resolve_pending_selection(self, raw_line: str) -> str | None:
+        if self.pending_selection is None:
+            return None
+
+        lowered = raw_line.strip().lower()
+        if lowered in {"cancel", "never mind", "nevermind"}:
+            self.pending_selection = None
+            return "Cancelled selection."
+
+        match = re.match(r"^(?:pick|select)?\s*(\d+)$", lowered)
+        if match is None:
+            return None
+
+        choice_index = int(match.group(1)) - 1
+        if choice_index < 0 or choice_index >= len(self.pending_selection.candidates):
+            return f"Choose a number between 1 and {len(self.pending_selection.candidates)}."
+
+        repo = self._ensure_indexed()
+        pending = self.pending_selection
+        candidate = pending.candidates[choice_index]
+        self.pending_selection = None
+
+        if pending.action == "context":
+            payload = get_symbol_context(
+                repo.repo_id,
+                str(candidate["node_id"]),
+                graph_path=repo.graph_path,
+            )
+            if "error" not in payload:
+                self._remember_symbol(
+                    name=str(payload["symbol"]["name"]),
+                    node_id=str(payload["symbol"]["node_id"]),
+                    file_path=str(payload["symbol"]["file_path"]),
+                    symbol_type=str(payload["symbol"]["type"]),
+                )
+            return format_symbol_context(payload)
+
+        payload = get_impact(
+            repo.repo_id,
+            str(candidate["node_id"]),
+            pending.direction or "upstream",
+            pending.depth or 2,
+            graph_path=repo.graph_path,
+        )
+        if "error" not in payload:
+            self._remember_symbol(
+                name=str(payload["target"]["name"]),
+                node_id=str(payload["target"]["node_id"]),
+                file_path=str(payload["target"].get("file_path") or ""),
+                symbol_type=None,
+            )
+        return format_impact(payload)
+
+    def _remember_symbol(
+        self,
+        *,
+        name: str,
+        node_id: str,
+        file_path: str | None,
+        symbol_type: str | None,
+    ) -> None:
+        self.last_symbol = SymbolReference(
+            name=name,
+            node_id=node_id,
+            file_path=file_path,
+            symbol_type=symbol_type,
+        )
 
     @staticmethod
     def _default_index_root() -> Path:

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from code_graph_core.repl import (
     CodeGraphRepl,
+    SymbolReference,
     format_repl_help,
     format_search_payload,
     infer_repl_command,
@@ -59,6 +60,28 @@ def test_infer_repl_command_routes_common_natural_language_prompts() -> None:
     assert infer_repl_command("what is the repo status?") == ("status", [])
 
 
+def test_infer_repl_command_uses_last_symbol_for_follow_ups() -> None:
+    last_symbol = SymbolReference(
+        name="generate_invoice",
+        node_id="method:src/billing/service.py:BillingService:generate_invoice:5",
+        file_path="src/billing/service.py",
+        symbol_type="Method",
+    )
+
+    assert infer_repl_command("show callers", last_symbol=last_symbol) == (
+        "impact",
+        [last_symbol.node_id, "upstream", "1"],
+    )
+    assert infer_repl_command("downstream too", last_symbol=last_symbol) == (
+        "impact",
+        [last_symbol.node_id, "downstream", "1"],
+    )
+    assert infer_repl_command("show context", last_symbol=last_symbol) == (
+        "context",
+        [last_symbol.node_id, last_symbol.file_path],
+    )
+
+
 def test_repl_bare_query_falls_back_to_search(tmp_path: Path) -> None:
     output: list[str] = []
     repl = CodeGraphRepl(
@@ -103,6 +126,42 @@ def test_repl_context_command_returns_symbol_context(tmp_path: Path) -> None:
     assert "Method generate_invoice" in response
     assert "BillingService" in response
     assert "Callers:" in response
+
+
+def test_repl_follow_up_prompt_uses_last_symbol(tmp_path: Path) -> None:
+    output: list[str] = []
+    repl = CodeGraphRepl(
+        repo_path=str(FIXTURES_ROOT / "py_basic_app"),
+        index_root=tmp_path / "indexes",
+        output=output.append,
+        show_progress=False,
+    )
+
+    first = repl.execute_line("context generate_invoice src/billing/service.py")
+    second = repl.execute_line("show callers")
+
+    assert "Method generate_invoice" in first
+    assert "Impact: generate_invoice" in second
+    assert "direction: upstream" in second
+
+
+def test_repl_ambiguity_selection_resolves_numbered_choice(tmp_path: Path) -> None:
+    output: list[str] = []
+    repl = CodeGraphRepl(
+        repo_path=str(FIXTURES_ROOT / "ambiguity_app"),
+        index_root=tmp_path / "indexes",
+        output=output.append,
+        show_progress=False,
+    )
+
+    prompt = repl.execute_line("context save")
+    resolved = repl.execute_line("1")
+
+    assert "Choose one:" in prompt
+    assert "1. Method in src/repos/repo.py" in prompt
+    assert "2. Method in src/users/models.py" in prompt
+    assert "Method save" in resolved
+    assert "src/repos/repo.py" in resolved
 
 
 def test_repl_skills_and_impact_commands_use_existing_apis(tmp_path: Path) -> None:
