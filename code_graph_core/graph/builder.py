@@ -197,6 +197,7 @@ class GraphBuilder:
             symbol_kinds=symbol_kinds,
             imported_files_by_source=imported_files_by_source,
             imported_symbols_by_source=imported_symbols_by_source,
+            known_symbol_names={symbol.name for symbols in symbols_by_file.values() for symbol in symbols},
         )
         relationships.extend(call_relationships)
 
@@ -277,7 +278,8 @@ class GraphBuilder:
                 file_nodes=file_nodes,
             )
             if target_file is None:
-                unresolved_import_count += max(1, len(record.imported_names))
+                if record.imported_names or record.module_path.startswith("."):
+                    unresolved_import_count += max(1, len(record.imported_names))
                 continue
 
             imported_files_by_source[record.source_file].add(target_file)
@@ -341,6 +343,7 @@ class GraphBuilder:
         symbol_kinds: dict[str, str],
         imported_files_by_source: dict[str, set[str]],
         imported_symbols_by_source: dict[str, dict[str, list[str]]],
+        known_symbol_names: set[str],
     ) -> tuple[list[RelationshipRecord], int]:
         relationships: list[RelationshipRecord] = []
         relationship_keys: set[tuple[str, str, str, str]] = set()
@@ -348,7 +351,6 @@ class GraphBuilder:
 
         for call in calls:
             if call.source_symbol_id is None:
-                unresolved_call_count += 1
                 continue
 
             same_file_matches = [symbol.id for symbol in symbols_by_file.get(call.file_path, []) if symbol.name == call.target_name]
@@ -366,7 +368,8 @@ class GraphBuilder:
                 imported_file_matches=imported_file_matches,
             )
             if resolution is None:
-                unresolved_call_count += 1
+                if call.target_name in known_symbol_names:
+                    unresolved_call_count += 1
                 continue
 
             target_id, reason = resolution

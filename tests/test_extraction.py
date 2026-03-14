@@ -3,6 +3,7 @@ from __future__ import annotations
 from code_graph_core.ingestion.parser import ParserRegistry
 from code_graph_core.ingestion.scanner import RepositoryScanner
 from code_graph_core.ingestion.symbol_extractor import SymbolExtractor
+from code_graph_core.languages.shared import normalize_call_target
 from tests.conftest import FIXTURES_ROOT
 
 
@@ -37,3 +38,8 @@ def test_python_extraction_finds_classes_functions_and_methods() -> None:
     assert ("Function", "create_service") in symbol_names
     assert extraction.imports[0].module_path == "repository"
 
+
+def test_normalize_call_target_extracts_terminal_identifier() -> None:
+    assert normalize_call_target('console.log("hello")') == "log"
+    assert normalize_call_target("promise.then(fn)") == "then"
+    assert normalize_call_target("repository.save(order_id)") == "save"

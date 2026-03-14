@@ -5,7 +5,7 @@ from hashlib import sha256
 from tree_sitter import Node
 
 from code_graph_core.graph.models import CallRecord, ExtractedSymbol, ExtractionResult, ImportRecord, ParsedFile
-from code_graph_core.languages.shared import child_text, compact_signature, line_span, walk
+from code_graph_core.languages.shared import child_text, compact_signature, line_span, normalize_call_target, walk
 
 
 class PythonExtractor:
@@ -96,7 +96,7 @@ class PythonExtractor:
                 start_line = node.start_point.row + 1
                 symbol_id = self._symbol_for_line(by_line, start_line)
                 function_node = node.child_by_field_name("function") or (node.children[0] if node.children else None)
-                target_name = child_text(function_node, parsed_file.source_text).split(".")[-1]
+                target_name = normalize_call_target(child_text(function_node, parsed_file.source_text))
                 calls.append(
                     CallRecord(
                         source_symbol_id=symbol_id,

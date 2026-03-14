@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from tree_sitter import Node
 
 
@@ -24,3 +26,8 @@ def walk(node: Node):
     for child in node.children:
         yield from walk(child)
 
+
+def normalize_call_target(raw_text: str) -> str:
+    candidate = raw_text.split("(", 1)[0]
+    matches = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", candidate)
+    return matches[-1] if matches else raw_text.strip()

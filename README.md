@@ -83,5 +83,6 @@ Default source repo:
 
 If an index already exists under the GUI cache directory, the app loads it automatically on startup for the current repo path.
 The GUI also marks reused indexes as `CURRENT` or `STALE`; stale indexes are rebuilt automatically before search/context actions.
+During indexing, the GUI shows phase-based progress updates for scanning, parsing, extraction, graph build, persistence, and metadata writes.
 
 Runtime note: the GUI uses `tkinter`, so the Python interpreter you run it with must include Tk support.

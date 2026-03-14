@@ -199,6 +199,17 @@ def format_impact(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def format_index_progress(progress: Any) -> str:
+    total = int(getattr(progress, "total", 0) or 0)
+    current = int(getattr(progress, "current", 0) or 0)
+    message = str(getattr(progress, "message", ""))
+    phase = str(getattr(progress, "phase", "work")).capitalize()
+    if total > 1:
+        percent = int((current / total) * 100)
+        return f"{phase} {current}/{total} ({percent}%) | {message}"
+    return f"{phase} | {message}"
+
+
 def classify_index_freshness(repo_path: Path, metadata: dict[str, object]) -> str:
     stored_last_modified_at = metadata.get("source_last_modified_at")
     if not stored_last_modified_at:
@@ -263,6 +274,7 @@ class CodeGraphGuiApp:
         self.impact_direction_var = tk.StringVar(value="upstream")
         self.impact_depth_var = tk.StringVar(value="2")
         self.status_var = tk.StringVar(value="Ready.")
+        self.progress_var = tk.DoubleVar(value=0.0)
 
         self.current_repo: IndexedRepoState | None = None
         self.search_results: list[dict[str, Any]] = []
@@ -288,6 +300,8 @@ class CodeGraphGuiApp:
         self.index_button.grid(row=0, column=2, sticky="e", padx=(8, 0))
 
         ttk.Label(header, textvariable=self.status_var).grid(row=1, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        self.progress_bar = ttk.Progressbar(header, variable=self.progress_var, maximum=100, mode="determinate")
+        self.progress_bar.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(8, 0))
 
         controls = ttk.Frame(self.root, padding=(12, 0, 12, 12))
         controls.grid(row=1, column=0, sticky="ew")
@@ -387,7 +401,7 @@ class CodeGraphGuiApp:
 
         self._run_background(
             started_message=f"Indexing {repo_path} ...",
-            job=lambda: self._index_repo(str(repo_path)),
+            job=lambda: self._index_repo(str(repo_path), progress_callback=self._queue_progress),
             success=lambda result: self._handle_index_result(result, str(repo_path)),
         )
 
@@ -471,6 +485,8 @@ class CodeGraphGuiApp:
 
             if kind == "error":
                 self._show_error(str(payload))
+            elif kind == "progress":
+                self._handle_progress(payload)
             elif kind == "success":
                 callback, value = payload
                 callback(value)
@@ -535,11 +551,30 @@ class CodeGraphGuiApp:
             )
         self._render_text(format_impact(response))
 
+    def _handle_progress(self, progress: Any) -> None:
+        total = int(getattr(progress, "total", 0) or 0)
+        current = int(getattr(progress, "current", 0) or 0)
+        if total > 1:
+            self.progress_bar.configure(mode="determinate")
+            self.progress_var.set((current / total) * 100)
+        else:
+            self.progress_bar.configure(mode="indeterminate")
+            if current == 0:
+                self.progress_bar.start(12)
+            else:
+                self.progress_bar.stop()
+                self.progress_bar.configure(mode="determinate")
+                self.progress_var.set(100.0)
+        self.status_var.set(format_index_progress(progress))
+
     def _render_text(self, content: str) -> None:
         self.context_text.configure(state="normal")
         self.context_text.delete("1.0", tk.END)
         self.context_text.insert("1.0", content)
         self.context_text.configure(state="disabled")
+
+    def _queue_progress(self, progress: Any) -> None:
+        self._event_queue.put(("progress", progress))
 
     def _set_busy(self, is_busy: bool) -> None:
         if is_busy:
@@ -553,6 +588,10 @@ class CodeGraphGuiApp:
         self.skills_button.configure(state=state)
         self.skill_detail_button.configure(state=state)
         self.impact_button.configure(state=state)
+        if self._busy_count == 0:
+            self.progress_bar.stop()
+            self.progress_bar.configure(mode="determinate")
+            self.progress_var.set(0.0)
 
     def _show_error(self, message: str) -> None:
         self.status_var.set(message)
@@ -631,7 +670,7 @@ class CodeGraphGuiApp:
 
         self._run_background(
             started_message=f"Indexing {repo_path} ...",
-            job=lambda: self._index_repo(str(repo_path)),
+            job=lambda: self._index_repo(str(repo_path), progress_callback=self._queue_progress),
             success=lambda result: self._handle_index_result_and_continue(result, str(repo_path), callback),
         )
 
@@ -712,7 +751,7 @@ class CodeGraphGuiApp:
         return Path.home() / ".code_graph_gui"
 
     @staticmethod
-    def _index_repo(repo_path: str):
+    def _index_repo(repo_path: str, progress_callback: Callable[[Any], None] | None = None):
         try:
             from code_graph_core.api.indexing import index_repo
         except ModuleNotFoundError as exc:  # pragma: no cover - depends on runtime environment
@@ -720,7 +759,11 @@ class CodeGraphGuiApp:
                 "Missing runtime dependency for indexing. Run "
                 "`python -m pip install -e .` in `C:\\work\\india\\codedb` first."
             ) from exc
-        return index_repo(repo_path, index_root=str(CodeGraphGuiApp._index_root()))
+        return index_repo(
+            repo_path,
+            index_root=str(CodeGraphGuiApp._index_root()),
+            progress_callback=progress_callback,
+        )
 
     @staticmethod
     def _search(repo_id: str, query: str, graph_path: str):

@@ -8,6 +8,7 @@ from code_graph_core import index_repo
 from code_graph_core.gui import (
     classify_index_freshness,
     format_impact,
+    format_index_progress,
     format_search_result,
     format_skill_detail,
     format_skills_list,
@@ -140,6 +141,18 @@ def test_format_impact_includes_summary() -> None:
     assert "severity: HIGH" in formatted
     assert "By depth:" in formatted
     assert "- createInvoiceHandler (src/handlers/invoice.ts, skill=handlers)" in formatted
+
+
+def test_format_index_progress_reports_percent() -> None:
+    class Progress:
+        phase = "parse"
+        current = 5
+        total = 20
+        message = "Parsing src/example.ts (5/20)"
+
+    formatted = format_index_progress(Progress())
+
+    assert formatted == "Parse 5/20 (25%) | Parsing src/example.ts (5/20)"
 
 
 def test_load_existing_index_state_reads_persisted_index(tmp_path: Path) -> None:
